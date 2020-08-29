@@ -25,7 +25,7 @@ def IPCS(degree_u=2):
     Q = dolfinx.FunctionSpace(mesh, ("CG", degree_u-1))
     # Temporal parameters
     t = 0
-    dt = 0.1
+    dt = 0.01
     T = 8
 
     # Physical parameters
@@ -74,7 +74,7 @@ def IPCS(degree_u=2):
 
     def inlet_velocity(t):
         return lambda x: np.row_stack(
-            (16*np.sin(np.pi*t/8)*Um*x[1]*x[2]*(H-x[1])*(H-x[2])/(H**4),
+            (16*np.sin(np.pi*t/T)*Um*x[1]*x[2]*(H-x[1])*(H-x[2])/(H**4),
              np.zeros(x.shape[1]), np.zeros(x.shape[1])))
     u_inlet = dolfinx.Function(V)
     u_zero = dolfinx.Function(V)
