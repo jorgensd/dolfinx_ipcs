@@ -9,7 +9,7 @@ from petsc4py import PETSc
 try:
     from tqdm import tqdm
 except ModuleNotFoundError:
-    if MPI.COMM_WORLD.rank ==0:
+    if MPI.COMM_WORLD.rank == 0:
         print("please install tqdm: `pip3 install tqdm`")
     exit(1)
 
@@ -31,15 +31,15 @@ def IPCS(dim=3, degree_u=2):
     out_u = dolfinx.io.VTKFile("results/u.pvd")
     out_p = dolfinx.io.VTKFile("results/p.pvd")
 
-    
-    with dolfinx.io.XDMFFile(comm, "facets{0:s}.xdmf".format(ext), "r") as xdmf:
+    with dolfinx.io.XDMFFile(
+       comm, "facets{0:s}.xdmf".format(ext), "r") as xdmf:
         mt = xdmf.read_meshtags(mesh, "Grid")
     # Define function spaces
     V = dolfinx.VectorFunctionSpace(mesh, ("CG", degree_u))
     Q = dolfinx.FunctionSpace(mesh, ("CG", degree_u-1))
     # Temporal parameters
     t = 0
-    dt = 1e-2
+    dt = 5e-3
     T = 8
 
     # Physical parameters
@@ -65,23 +65,20 @@ def IPCS(dim=3, degree_u=2):
     u = ufl.TrialFunction(V)
     v = ufl.TestFunction(V)
     bs = 2*uh - u_old
-  
     # Step 1: Tentative velocity step
     a_tent = (w_time * ufl.inner(u, v) + w_diffusion *
               ufl.inner(ufl.grad(u), ufl.grad(v)))*ufl.dx
 
     L_tent = (ufl.inner(ph, ufl.div(v)) + ufl.inner(f, v))*ufl.dx
 
-    L_tent += dolfinx.Constant(mesh, 1/(2*dt)) * ufl.inner(4*uh-u_old, v)*ufl.dx
-
+    L_tent += dolfinx.Constant(mesh, 1/(2*dt))\
+        * ufl.inner(4*uh-u_old, v)*ufl.dx
 
     # BDF2 with implicit Adams-Bashforth
     a_tent += ufl.inner(ufl.grad(u)*bs, v)*ufl.dx
     # Temam-device
     a_tent += dolfinx.Constant(mesh, 0.5)*ufl.div(bs)*ufl.inner(u, v)*ufl.dx
 
-    
-    
     # Find boundary facets and create boundary condition
     inlet_facets = mt.indices[mt.values == 1]
     inlet_dofs = dolfinx.fem.locate_dofs_topological(V, fdim, inlet_facets)
@@ -90,6 +87,7 @@ def IPCS(dim=3, degree_u=2):
     obstacle_facets = mt.indices[mt.values == 4]
     obstacle_dofs = dolfinx.fem.locate_dofs_topological(
         V, fdim, obstacle_facets)
+
     def inlet_velocity(t):
         if mesh.geometry.dim == 3:
             return lambda x: np.row_stack(
@@ -138,10 +136,10 @@ def IPCS(dim=3, degree_u=2):
                        mode=PETSc.ScatterMode.REVERSE)
     dolfinx.fem.assemble.set_bc(b_corr, bcs_corr)
 
-
     # Step 3: Velocity update
     a_up = ufl.inner(u, v)*ufl.dx
-    L_up = (ufl.inner(u_tent, v) - 1/w_time* ufl.inner(ufl.grad(phi), v))*ufl.dx
+    L_up = (ufl.inner(u_tent, v)
+            - 1/w_time * ufl.inner(ufl.grad(phi), v))*ufl.dx
     A_up = dolfinx.fem.assemble_matrix(a_up)
     A_up.assemble()
     b_up = dolfinx.fem.assemble_vector(L_up)
@@ -150,32 +148,23 @@ def IPCS(dim=3, degree_u=2):
     # Setup solvers
     solver_tent = PETSc.KSP().create(comm)
     solver_tent.setOperators(A_tent)
-    # solver_tent.setType("preonly")
-    # solver_tent.getPC().setType("lu")
-    # solver_tent.getPC().setFactorSolverType("mumps")
-    solver_tent.rtol = 1e-14
+    solver_tent.rtol = 1e-10
     solver_tent.setType("bcgs")
     solver_tent.getPC().setType("jacobi")
 
     solver_corr = PETSc.KSP().create(comm)
     solver_corr.setOperators(A_corr)
-    # solver_corr.setType("preonly")
-    # solver_corr.getPC().setType("lu")
-    # solver_corr.getPC().setFactorSolverType("mumps")
-    solver_corr.rtol = 1e-14
+    solver_corr.rtol = 1e-10
     solver_corr.setType("cg")
     solver_corr.getPC().setType("gamg")
     solver_corr.getPC().setGAMGType("agg")
 
     solver_up = PETSc.KSP().create(comm)
     solver_up.setOperators(A_up)
-    solver_up.setTolerances(rtol=1.0e-14)
+    solver_up.setTolerances(rtol=1.0e-10)
     solver_up.setType("cg")
     solver_up.getPC().setType("gamg")
     solver_up.getPC().setGAMGType("agg")
-    # solver_up.setType("preonly")
-    # solver_up.getPC().setType("lu")
-    # solver_up.getPC().setFactorSolverType("mumps")
 
 
 
@@ -183,7 +172,6 @@ def IPCS(dim=3, degree_u=2):
     out_u.write(uh, t)
     out_p.write(ph, t)
     N = int(T/dt)
-
     for i in tqdm(range(N)):
 
         t += dt
@@ -211,11 +199,11 @@ def IPCS(dim=3, degree_u=2):
         b_corr.ghostUpdate(addv=PETSc.InsertMode.ADD,
                            mode=PETSc.ScatterMode.REVERSE)
         dolfinx.fem.assemble.set_bc(b_corr, bcs_corr)
-    
+
         solver_corr.solve(b_corr, phi.vector)
         phi.vector.ghostUpdate(addv=PETSc.InsertMode.INSERT,
                                mode=PETSc.ScatterMode.FORWARD)
-    
+
         # Update p and previous u
         ph.vector.axpy(1.0, phi.vector)
         ph.vector.ghostUpdate(addv=PETSc.InsertMode.INSERT,
@@ -237,6 +225,5 @@ def IPCS(dim=3, degree_u=2):
         out_p.write(ph, t)
 
         
-
 if __name__ == "__main__":
     IPCS(dim=3, degree_u=2)
