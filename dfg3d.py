@@ -29,7 +29,7 @@ def IPCS(dim=3, degree_u=2):
         mesh.topology.create_connectivity(fdim, tdim)
 
     out_u = dolfinx.io.VTKFile("results/u.pvd")
-    out_p = dolfinx.io.VTKFile("results/p.pvd")
+    # out_p = dolfinx.io.VTKFile("results/p.pvd")
 
     with dolfinx.io.XDMFFile(
        comm, "facets{0:s}.xdmf".format(ext), "r") as xdmf:
@@ -39,7 +39,7 @@ def IPCS(dim=3, degree_u=2):
     Q = dolfinx.FunctionSpace(mesh, ("CG", degree_u-1))
     # Temporal parameters
     t = 0
-    dt = 5e-3
+    dt = 1e-2
     T = 8
 
     # Physical parameters
@@ -47,7 +47,7 @@ def IPCS(dim=3, degree_u=2):
     f = dolfinx.Constant(mesh, (0,)*mesh.geometry.dim)
     H = 0.41
     Um = 2.25
-
+    
     # Define functions for the variational form
     uh = dolfinx.Function(V)
     uh.name = "Velocity"
@@ -148,82 +148,97 @@ def IPCS(dim=3, degree_u=2):
     # Setup solvers
     solver_tent = PETSc.KSP().create(comm)
     solver_tent.setOperators(A_tent)
-    solver_tent.rtol = 1e-10
+    solver_tent.setTolerances(rtol=1e-8, atol=1e-8)
+    solver_tent.rtol = 1e-8
     solver_tent.setType("bcgs")
     solver_tent.getPC().setType("jacobi")
+    # solver_tent.setInitialGuessNonzero(True)
+    # solver_tent.max_it = 200
+    # solver_tent.setType("bcgs")
+    # solver_tent.getPC().setType("jacobi")
 
     solver_corr = PETSc.KSP().create(comm)
     solver_corr.setOperators(A_corr)
-    solver_corr.rtol = 1e-10
-    solver_corr.setType("cg")
-    solver_corr.getPC().setType("gamg")
-    solver_corr.getPC().setGAMGType("agg")
-
+    solver_corr.setTolerances(rtol=1e-8, atol=1e-8)
+    solver_corr.setInitialGuessNonzero(True)
+    solver_corr.max_it = 200
+    solver_corr.setType("gmres")
+    solver_corr.getPC().setType("hypre")
+    solver_corr.getPC().setHYPREType("boomeramg")
+    
     solver_up = PETSc.KSP().create(comm)
     solver_up.setOperators(A_up)
-    solver_up.setTolerances(rtol=1.0e-10)
+    solver_up.setTolerances(rtol=1e-8, atol=1e-8)
+    solver_up.setInitialGuessNonzero(True)
+    solver_up.max_it = 200
     solver_up.setType("cg")
-    solver_up.getPC().setType("gamg")
-    solver_up.getPC().setGAMGType("agg")
-
+    solver_up.getPC().setType("jacobi")
+    
 
 
     # Solve problem
     out_u.write(uh, t)
-    out_p.write(ph, t)
+    # out_p.write(ph, t)
     N = int(T/dt)
     for i in tqdm(range(N)):
 
         t += dt
         # Solve step 1
-        u_inlet.interpolate(inlet_velocity(t))
-        A_tent.zeroEntries()
-        dolfinx.fem.assemble_matrix(A_tent, a_tent, bcs=bcs_tent)
-        A_tent.assemble()
-        with b_tent.localForm() as b_local:
-            b_local.set(0.0)
-        dolfinx.fem.assemble_vector(b_tent, L_tent)
-        dolfinx.fem.assemble.apply_lifting(b_tent, [a_tent], [bcs_tent])
-        b_tent.ghostUpdate(addv=PETSc.InsertMode.ADD,
-                           mode=PETSc.ScatterMode.REVERSE)
-        dolfinx.fem.assemble.set_bc(b_tent, bcs_tent)
-        solver_tent.solve(b_tent, u_tent.vector)
-        u_tent.vector.ghostUpdate(addv=PETSc.InsertMode.INSERT,
+        with dolfinx.common.Timer("~Step 1"):
+            u_inlet.interpolate(inlet_velocity(t))
+            A_tent.zeroEntries()
+            dolfinx.fem.assemble_matrix(A_tent, a_tent, bcs=bcs_tent)
+            A_tent.assemble()
+            with b_tent.localForm() as b_local:
+                b_local.set(0.0)
+            dolfinx.fem.assemble_vector(b_tent, L_tent)
+            dolfinx.fem.assemble.apply_lifting(b_tent, [a_tent], [bcs_tent])
+            b_tent.ghostUpdate(addv=PETSc.InsertMode.ADD,
+                               mode=PETSc.ScatterMode.REVERSE)
+            dolfinx.fem.assemble.set_bc(b_tent, bcs_tent)
+            solver_tent.solve(b_tent, u_tent.vector)
+            u_tent.vector.ghostUpdate(addv=PETSc.InsertMode.INSERT,
                                   mode=PETSc.ScatterMode.FORWARD)
 
         # Solve step 2
-        with b_corr.localForm() as b_local:
-            b_local.set(0.0)
-        dolfinx.fem.assemble_vector(b_corr, L_corr)
-        dolfinx.fem.assemble.apply_lifting(b_corr, [a_corr], [bcs_corr])
-        b_corr.ghostUpdate(addv=PETSc.InsertMode.ADD,
-                           mode=PETSc.ScatterMode.REVERSE)
-        dolfinx.fem.assemble.set_bc(b_corr, bcs_corr)
+        with dolfinx.common.Timer("~Step 2"):
+            with b_corr.localForm() as b_local:
+                b_local.set(0.0)
+            dolfinx.fem.assemble_vector(b_corr, L_corr)
+            dolfinx.fem.assemble.apply_lifting(b_corr, [a_corr], [bcs_corr])
+            b_corr.ghostUpdate(addv=PETSc.InsertMode.ADD,
+                               mode=PETSc.ScatterMode.REVERSE)
+            dolfinx.fem.assemble.set_bc(b_corr, bcs_corr)
+            
+            solver_corr.solve(b_corr, phi.vector)
+            phi.vector.ghostUpdate(addv=PETSc.InsertMode.INSERT,
+                                   mode=PETSc.ScatterMode.FORWARD)
 
-        solver_corr.solve(b_corr, phi.vector)
-        phi.vector.ghostUpdate(addv=PETSc.InsertMode.INSERT,
-                               mode=PETSc.ScatterMode.FORWARD)
-
-        # Update p and previous u
-        ph.vector.axpy(1.0, phi.vector)
-        ph.vector.ghostUpdate(addv=PETSc.InsertMode.INSERT,
-                              mode=PETSc.ScatterMode.FORWARD)
-        uh.vector.copy(result=u_old.vector)
-        u_old.vector.ghostUpdate(addv=PETSc.InsertMode.INSERT,
-                                 mode=PETSc.ScatterMode.FORWARD)
+            # Update p and previous u
+            ph.vector.axpy(1.0, phi.vector)
+            ph.vector.ghostUpdate(addv=PETSc.InsertMode.INSERT,
+                                  mode=PETSc.ScatterMode.FORWARD)
+            uh.vector.copy(result=u_old.vector)
+            u_old.vector.ghostUpdate(addv=PETSc.InsertMode.INSERT,
+                                     mode=PETSc.ScatterMode.FORWARD)
         # Solve step 3
-        with b_up.localForm() as b_local:
-            b_local.set(0.0)
-        dolfinx.fem.assemble_vector(b_up, L_up)
-        b_up.ghostUpdate(addv=PETSc.InsertMode.ADD,
-                         mode=PETSc.ScatterMode.REVERSE)
-        solver_up.solve(b_up, uh.vector)
-        uh.vector.ghostUpdate(addv=PETSc.InsertMode.INSERT,
-                              mode=PETSc.ScatterMode.FORWARD)
-    
-        out_u.write(uh, t)
-        out_p.write(ph, t)
+        with dolfinx.common.Timer("~Step 3"):
+            with b_up.localForm() as b_local:
+                b_local.set(0.0)
+            dolfinx.fem.assemble_vector(b_up, L_up)
+            b_up.ghostUpdate(addv=PETSc.InsertMode.ADD,
+                             mode=PETSc.ScatterMode.REVERSE)
+            solver_up.solve(b_up, uh.vector)
+            uh.vector.ghostUpdate(addv=PETSc.InsertMode.INSERT,
+                                  mode=PETSc.ScatterMode.FORWARD)
 
+        if i%24 == 0:
+            with dolfinx.common.Timer("~IO"):
+                out_u.write(uh, t)
+                # out_p.write(ph, t)
+    dolfinx.common.list_timings(comm, [dolfinx.common.TimingType.wall])
         
 if __name__ == "__main__":
     IPCS(dim=3, degree_u=2)
+
+
