@@ -48,7 +48,7 @@ def IPCS(r_lvl, t_lvl, degree_u=2):
     uh = dolfinx.Function(V)
     uh.name = "Velocity"
     u_tent = dolfinx.Function(V)
-    u_tent.name = "Tentative velocity"
+    u_tent.name = "Tentative_velocity"
     u_old = dolfinx.Function(V)
     ph = dolfinx.Function(Q)
     ph.name = "Pressure"
@@ -120,7 +120,6 @@ def IPCS(r_lvl, t_lvl, degree_u=2):
     A_corr.assemble()
 
     b_corr = dolfinx.fem.assemble_vector(L_corr)
-    exit(1)
     b_corr.assemble()
 
     # Step 3: Velocity update
