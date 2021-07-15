@@ -1,23 +1,30 @@
-from IPython import embed
+# Copyright (C) 2021 Jørgen S. Dokken
+#
+# SPDX-License-Identifier:    MIT
+
+import argparse
+
 import dolfinx
 import dolfinx.io
-import ufl
 import numpy as np
-
+import ufl
 from mpi4py import MPI
 from petsc4py import PETSc
 
 comm = MPI.COMM_WORLD
-def compute_l2_time_err(dt, errors): return np.sqrt(dt*sum(errors))
+
+
+def compute_l2_time_err(dt, errors):
+    return np.sqrt(dt * sum(errors))
 
 
 def compute_eoc(errors):
-    return np.log(errors[:-1]/errors[1:])/np.log(2)
+    return np.log(errors[:-1] / errors[1:]) / np.log(2)
 
 
 def IPCS(r_lvl, t_lvl, degree_u=2):
     # Define mesh and function spaces
-    N = 10*2**r_lvl
+    N = 10 * 2**r_lvl
     mesh = dolfinx.RectangleMesh(comm, [np.array([-1.0, -1.0, 0.0]),
                                         np.array([2.0, 2.0, 0.0])],
                                  [N, N], dolfinx.cpp.mesh.CellType.triangle)
@@ -30,7 +37,7 @@ def IPCS(r_lvl, t_lvl, degree_u=2):
 
     # Temporal parameters
     t = 0
-    dt = 0.1*0.5**t_lvl
+    dt = 0.1 * 0.5**t_lvl
     T = 1
 
     # Physical parameters
@@ -54,22 +61,22 @@ def IPCS(r_lvl, t_lvl, degree_u=2):
         for the analytical expression of u
         """
         return lambda x: np.row_stack((
-            -np.cos(np.pi*x[0])*np.sin(np.pi*x[1])
-            * np.exp(-2.0*nu*np.pi**2*t),
-            np.cos(np.pi*x[1])*np.sin(np.pi*x[0])
-            * np.exp(-2.0*nu*np.pi**2*t)))
+            -np.cos(np.pi * x[0]) * np.sin(np.pi * x[1])
+            * np.exp(-2.0 * nu * np.pi**2 * t),
+            np.cos(np.pi * x[1]) * np.sin(np.pi * x[0])
+            * np.exp(-2.0 * nu * np.pi**2 * t)))
 
     def p_ex(t, nu):
         """
         Wrapper to generate a function for interpolating given any pair of t and nu
         for the analytical expression of
         """
-        return lambda x: -0.25*(np.cos(2*np.pi*x[0]) + np.cos(2*np.pi*x[1]))\
-            * np.exp(-4.0*nu*np.pi**2*t)
+        return lambda x: -0.25 * (np.cos(2 * np.pi * x[0]) + np.cos(2 * np.pi * x[1]))\
+            * np.exp(-4.0 * nu * np.pi**2 * t)
 
     # Interpolate initial guesses
     uh.interpolate(u_ex(t, nu))
-    u_old.interpolate(u_ex(t-dt, nu))
+    u_old.interpolate(u_ex(t - dt, nu))
     ph.interpolate(p_ex(t, nu))
 
     # Define variational forms
@@ -77,25 +84,25 @@ def IPCS(r_lvl, t_lvl, degree_u=2):
     v = ufl.TestFunction(V)
 
     # Step 1: Tentative velocity step
-    w_time = dolfinx.Constant(mesh, 3/(2*dt))
+    w_time = dolfinx.Constant(mesh, 3 / (2 * dt))
     w_diffusion = dolfinx.Constant(mesh, nu)
-    a_tent = (w_time * ufl.inner(u, v) + w_diffusion *
-              ufl.inner(ufl.grad(u), ufl.grad(v)))*ufl.dx
-    L_tent = (ufl.inner(ph, ufl.div(v)) + ufl.inner(f, v))*ufl.dx
-    L_tent += dolfinx.Constant(mesh, 1/(2*dt)) *\
-        ufl.inner(dolfinx.Constant(mesh, 4)*uh-u_old, v)*ufl.dx
+    a_tent = (w_time * ufl.inner(u, v) + w_diffusion
+              * ufl.inner(ufl.grad(u), ufl.grad(v))) * ufl.dx
+    L_tent = (ufl.inner(ph, ufl.div(v)) + ufl.inner(f, v)) * ufl.dx
+    L_tent += dolfinx.Constant(mesh, 1 / (2 * dt)) *\
+        ufl.inner(dolfinx.Constant(mesh, 4) * uh - u_old, v) * ufl.dx
     # BDF2 with implicit Adams-Bashforth
-    bs = dolfinx.Constant(mesh, 2)*uh - u_old
-    a_tent += ufl.inner(ufl.grad(u)*bs, v)*ufl.dx
+    bs = dolfinx.Constant(mesh, 2) * uh - u_old
+    a_tent += ufl.inner(ufl.grad(u) * bs, v) * ufl.dx
     # Temam-device
-    a_tent += dolfinx.Constant(mesh, 0.5)*ufl.div(bs)*ufl.inner(u, v)*ufl.dx
+    a_tent += dolfinx.Constant(mesh, 0.5) * ufl.div(bs) * ufl.inner(u, v) * ufl.dx
     # Find boundary facets and create boundary condition
     mesh.topology.create_connectivity(facetdim, celldim)
     bndry_facets = np.where(np.array(
         dolfinx.cpp.mesh.compute_boundary_facets(mesh.topology)) == 1)[0]
     bdofsV = dolfinx.fem.locate_dofs_topological(V, facetdim, bndry_facets)
     u_bc = dolfinx.Function(V)
-    u_bc.interpolate(u_ex(t+dt, nu))
+    u_bc.interpolate(u_ex(t + dt, nu))
     bcs_tent = [dolfinx.DirichletBC(u_bc, bdofsV)]
     A_tent = dolfinx.fem.assemble_matrix(a_tent, bcs=bcs_tent)
     A_tent.assemble()
@@ -105,21 +112,24 @@ def IPCS(r_lvl, t_lvl, degree_u=2):
     # Step 2: Pressure correction step
     p = ufl.TrialFunction(Q)
     q = ufl.TestFunction(Q)
-    a_corr = ufl.inner(ufl.grad(p), ufl.grad(q))*ufl.dx
-    L_corr = - w_time*ufl.inner(ufl.div(u_tent), q)*ufl.dx
+    a_corr = ufl.inner(ufl.grad(p), ufl.grad(q)) * ufl.dx
+    L_corr = - w_time * ufl.inner(ufl.div(u_tent), q) * ufl.dx
     nullspace = PETSc.NullSpace().create(constant=True)
     A_corr = dolfinx.fem.assemble_matrix(a_corr)
     A_corr.setNullSpace(nullspace)
     A_corr.assemble()
+
     b_corr = dolfinx.fem.assemble_vector(L_corr)
+    exit(1)
     b_corr.assemble()
 
     # Step 3: Velocity update
-    a_up = ufl.inner(u, v)*ufl.dx
+    a_up = ufl.inner(u, v) * ufl.dx
     L_up = (ufl.inner(u_tent, v) - w_time**(-1)
-            * ufl.inner(ufl.grad(phi), v))*ufl.dx
+            * ufl.inner(ufl.grad(phi), v)) * ufl.dx
     A_up = dolfinx.fem.assemble_matrix(a_up)
     A_up.assemble()
+
     b_up = dolfinx.fem.assemble_vector(L_up)
     b_up.assemble()
 
@@ -146,8 +156,8 @@ def IPCS(r_lvl, t_lvl, degree_u=2):
     solver_up.setOperators(A_up)
 
     # Create spaces for error approximation
-    V_err = dolfinx.VectorFunctionSpace(mesh, ("CG", degree_u+error_raise))
-    Q_err = dolfinx.FunctionSpace(mesh, ("CG", degree_p+error_raise))
+    V_err = dolfinx.VectorFunctionSpace(mesh, ("CG", degree_u + error_raise))
+    Q_err = dolfinx.FunctionSpace(mesh, ("CG", degree_p + error_raise))
     u_err = dolfinx.Function(V_err)
     p_err = dolfinx.Function(Q_err)
 
@@ -156,15 +166,15 @@ def IPCS(r_lvl, t_lvl, degree_u=2):
     outfile.write_mesh(mesh)
 
     # Solve problem
-    l2_u = np.zeros(int(T/dt), dtype=np.float64)
-    l2_p = np.zeros(int(T/dt), dtype=np.float64)
+    l2_u = np.zeros(int(T / dt), dtype=np.float64)
+    l2_p = np.zeros(int(T / dt), dtype=np.float64)
     vol = mesh.mpi_comm().allreduce(
-        dolfinx.fem.assemble_scalar(dolfinx.Constant(mesh, 1)*ufl.dx),
+        dolfinx.fem.assemble_scalar(dolfinx.Constant(mesh, 1) * ufl.dx),
         op=MPI.SUM)
     i = 0
     outfile.write_function(uh, t)
     outfile.write_function(ph, t)
-    while(t <= T-1e-3):
+    while(t <= T - 1e-3):
         t += dt
         # Update BC and exact solutions
         u_bc.interpolate(u_ex(t, nu))
@@ -203,7 +213,7 @@ def IPCS(r_lvl, t_lvl, degree_u=2):
 
         # Normalize pressure correction
         phi_avg = mesh.mpi_comm().allreduce(
-            dolfinx.fem.assemble_scalar(phi*ufl.dx)/vol,
+            dolfinx.fem.assemble_scalar(phi * ufl.dx) / vol,
             op=MPI.SUM)
         avg_vec = phi.vector.copy()
         with avg_vec.localForm() as avg_local:
@@ -233,10 +243,10 @@ def IPCS(r_lvl, t_lvl, degree_u=2):
 
         # Compute L2 erorr norms
         uL2 = mesh.mpi_comm().allreduce(
-            dolfinx.fem.assemble_scalar(ufl.inner(uh-u_err, uh-u_err)*ufl.dx),
+            dolfinx.fem.assemble_scalar(ufl.inner(uh - u_err, uh - u_err) * ufl.dx),
             op=MPI.SUM)
         pL2 = mesh.mpi_comm().allreduce(
-            dolfinx.fem.assemble_scalar(ufl.inner(ph-p_err, ph-p_err)*ufl.dx),
+            dolfinx.fem.assemble_scalar(ufl.inner(ph - p_err, ph - p_err) * ufl.dx),
             op=MPI.SUM)
         l2_u[i] = uL2
         l2_p[i] = pL2
@@ -253,16 +263,28 @@ def IPCS(r_lvl, t_lvl, degree_u=2):
 
 
 if __name__ == "__main__":
-    R_ref = 5
-    T_ref = 5
+    parser = argparse.ArgumentParser(
+        description="GMSH scripts to generate the mesh for the DFG 2D-3 benchmark"
+        + "http://www.mathematik.tu-dortmund.de/~featflow/en/benchmarks/cfdbenchmarking/flow/dfg_benchmark3_re100.html",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument("--spatial", default=4, type=int, dest="R_ref",
+                        help="Number of spatial refinements")
+    parser.add_argument("--temporal", default=4, type=int, dest="T_ref",
+                        help="Number of temporal refinements")
+    parser.add_argument("--degree-u", default=2, type=int, dest="degree",
+                        help="Degree of velocity space")
+
+    args = parser.parse_args()
+    R_ref = args.R_ref
+    T_ref = args.T_ref
     errors_u = np.zeros((R_ref, T_ref), dtype=np.float64)
     errors_p = np.zeros((R_ref, T_ref), dtype=np.float64)
     for i in range(R_ref):
         for j in range(T_ref):
-            errors_u[i, j], errors_p[i, j] = IPCS(i, j, degree_u=2)
-            print(i, j, errors_u[i, j], errors_p[i, j])
+            errors_u[i, j], errors_p[i, j] = IPCS(i, j, degree_u=args.degree)
+            print(f"{i}, {j}, {errors_u[i, j]}, {errors_p[i, j]}")
 
-    print("Temporal eoc u", compute_eoc(errors_u[-1, :]))
-    print("Spatial eoc u", compute_eoc(errors_u[:, -1]))
-    print("Temporal eoc p", compute_eoc(errors_p[-1, :]))
-    print("Spatial eoc p", compute_eoc(errors_p[:, -1]))
+    print(f"Temporal eoc u {compute_eoc(errors_u[-1, :])}")
+    print(f"Spatial eoc u {compute_eoc(errors_u[:, -1])}")
+    print(f"Temporal eoc p {compute_eoc(errors_p[-1, :])}")
+    print(f"Spatial eoc p {compute_eoc(errors_p[:, -1])}")

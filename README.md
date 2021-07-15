@@ -3,7 +3,7 @@ Repository for a simple BDF2 IPCS solver for the Navier-Stokes equations with an
 # Instalation
 To install the dependicies, docker is recommended:
 ```
-docker run -ti -v $(pwd):/home/fenics/shared -w /home/fenics/shared/ --rm dolfinx/dolfinx
+docker run -ti -v $(pwd):/root/shared -w /root/shared --rm dolfinx/dolfinx
 ```
 
 To be able to use time progressbar functionality, please install tqdm
@@ -21,6 +21,12 @@ To generate the mesh from the geo file, run
 ```bash
 python3 create_and_convert_3D_mesh.py
 ```
+Run 
+```bash
+python3 create_and_convert_3D_mesh.py --help
+```
+for command-line options.
+
 The problem is solved by running
 ```bash
 python3 dfg3d.py
