@@ -266,9 +266,9 @@ if __name__ == "__main__":
         description="GMSH scripts to generate the mesh for the DFG 2D-3 benchmark"
         + "http://www.mathematik.tu-dortmund.de/~featflow/en/benchmarks/cfdbenchmarking/flow/dfg_benchmark3_re100.html",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument("--spatial", default=4, type=int, dest="R_ref",
+    parser.add_argument("--spatial", default=5, type=int, dest="R_ref",
                         help="Number of spatial refinements")
-    parser.add_argument("--temporal", default=4, type=int, dest="T_ref",
+    parser.add_argument("--temporal", default=5, type=int, dest="T_ref",
                         help="Number of temporal refinements")
     parser.add_argument("--degree-u", default=2, type=int, dest="degree",
                         help="Degree of velocity space")
