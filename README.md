@@ -4,7 +4,7 @@ Author: Jørgen S. Dokken
 
 Repository for a simple BDF2 IPCS solver for the Navier-Stokes equations with an implicit Adam-Bashforth linearization and a Temam device.
 
-# Instalation
+# Installation
 To install the dependicies, docker is recommended:
 ```
 docker run -ti -v $(pwd):/root/shared -w /root/shared --rm dolfinx/dolfinx

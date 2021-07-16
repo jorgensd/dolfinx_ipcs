@@ -12,9 +12,11 @@ import gmsh
 import numpy as np
 from mpi4py import MPI
 
+__all__ = ["markers"]
+markers = {"Fluid": 1, "Inlet": 2, "Outlet": 3, "Walls": 4, "Obstacle": 5}
 
-def generate_2D_channel(filename: str, outdir: str, res_min: float = 0.01, res_max: float = 0.05,
-                        markers: Dict[str, int] = {"Fluid": 1, "Inlet": 2, "Outlet": 3, "Walls": 4, "Obstacle": 5}):
+
+def generate_2D_channel(filename: str, outdir: str, res_min: float = 0.01, res_max: float = 0.05):
     """
     Generate mesh for benchmark DFG 2D-3:
     http://www.mathematik.tu-dortmund.de/~featflow/en/benchmarks/cfdbenchmarking/flow/dfg_benchmark3_re100.html
@@ -25,8 +27,6 @@ def generate_2D_channel(filename: str, outdir: str, res_min: float = 0.01, res_m
         Minimal mesh resolution around obstacle
     res_max
         Maximal mesh resolution at outlet
-    markers
-        Dictonary with mapping from each domain/boundary to an integer (for MeshTags)
     """
     # Problem parameters
     L = 2.2

@@ -209,12 +209,10 @@ def IPCS(r_lvl: int, t_lvl: int, outdir: str, degree_u=2,
             b_local.set(0.0)
 
         dolfinx.fem.assemble_vector(b_corr, L_corr)
-        b_corr.ghostUpdate(addv=PETSc.InsertMode.ADD,
-                           mode=PETSc.ScatterMode.REVERSE)
+        b_corr.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
         b_corr.assemble()
         solver_corr.solve(b_corr, phi.vector)
-        phi.vector.ghostUpdate(addv=PETSc.InsertMode.INSERT,
-                               mode=PETSc.ScatterMode.FORWARD)
+        phi.vector.ghostUpdate(addv=PETSc.InsertMode.INSERT, mode=PETSc.ScatterMode.FORWARD)
 
         # Normalize pressure correction
         phi_avg = mesh.mpi_comm().allreduce(
@@ -224,15 +222,13 @@ def IPCS(r_lvl: int, t_lvl: int, outdir: str, degree_u=2,
         with avg_vec.localForm() as avg_local:
             avg_local.set(-phi_avg)
         phi.vector.axpy(1.0, avg_vec)
-        phi.vector.ghostUpdate(addv=PETSc.InsertMode.INSERT,
-                               mode=PETSc.ScatterMode.FORWARD)
+        phi.vector.ghostUpdate(addv=PETSc.InsertMode.INSERT, mode=PETSc.ScatterMode.FORWARD)
         # Update p and previous u
         ph.vector.axpy(1.0, phi.vector)
-        ph.vector.ghostUpdate(addv=PETSc.InsertMode.INSERT,
-                              mode=PETSc.ScatterMode.FORWARD)
+        ph.vector.ghostUpdate(addv=PETSc.InsertMode.INSERT, mode=PETSc.ScatterMode.FORWARD)
         uh.vector.copy(result=u_old.vector)
-        u_old.vector.ghostUpdate(addv=PETSc.InsertMode.INSERT,
-                                 mode=PETSc.ScatterMode.FORWARD)
+        u_old.vector.ghostUpdate(addv=PETSc.InsertMode.INSERT, mode=PETSc.ScatterMode.FORWARD)
+
         # Solve step 3
         A_up.zeroEntries()
         dolfinx.fem.assemble_matrix(A_up, a_up)
@@ -240,13 +236,11 @@ def IPCS(r_lvl: int, t_lvl: int, outdir: str, degree_u=2,
         with b_up.localForm() as b_local:
             b_local.set(0.0)
         dolfinx.fem.assemble_vector(b_up, L_up)
-        b_up.ghostUpdate(addv=PETSc.InsertMode.ADD,
-                         mode=PETSc.ScatterMode.REVERSE)
+        b_up.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
         solver_up.solve(b_up, uh.vector)
-        uh.vector.ghostUpdate(addv=PETSc.InsertMode.INSERT,
-                              mode=PETSc.ScatterMode.FORWARD)
+        uh.vector.ghostUpdate(addv=PETSc.InsertMode.INSERT, mode=PETSc.ScatterMode.FORWARD)
 
-        # Compute L2 erorr norms
+        # Compute L2 error norms
         uL2 = mesh.mpi_comm().allreduce(
             dolfinx.fem.assemble_scalar(ufl.inner(uh - u_err, uh - u_err) * ufl.dx),
             op=MPI.SUM)

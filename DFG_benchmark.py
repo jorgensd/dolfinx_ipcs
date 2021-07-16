@@ -1,12 +1,14 @@
 import argparse
 import os
+
 import dolfinx
 import dolfinx.io
-import ufl
 import numpy as np
-
+import ufl
 from mpi4py import MPI
 from petsc4py import PETSc
+
+from create_and_convert_2D_mesh import markers
 
 has_tqdm = True
 try:
@@ -19,9 +21,8 @@ dolfinx.log.set_log_level(dolfinx.log.LogLevel.ERROR)
 
 
 def IPCS(outdir: str, dim: int, degree_u: int,
-         jit_parameters: dict = {}):
-    #   {"cffi_extra_compile_args": ["-Ofast", "-march=native"], "cffi_libraries": ["m"]}):
-    #     assert degree_u >= 2
+         jit_parameters: dict = {"cffi_extra_compile_args": ["-Ofast", "-march=native"], "cffi_libraries": ["m"]}):
+    assert degree_u >= 2
 
     # Read in mesh
     comm = MPI.COMM_WORLD
@@ -47,8 +48,8 @@ def IPCS(outdir: str, dim: int, degree_u: int,
 
     # Temporal parameters
     t = 0
-    dt = 1e-2  # 5e-3
-    T = 5 * dt  # 8
+    dt = 1e-2
+    T = 8
 
     # Physical parameters
     nu = 0.001
@@ -85,7 +86,6 @@ def IPCS(outdir: str, dim: int, degree_u: int,
     a_tent += dolfinx.Constant(mesh, 0.5) * ufl.div(bs) * ufl.inner(u, v) * dx
 
     # Find boundary facets and create boundary condition
-    markers = {"Fluid": 1, "Inlet": 2, "Outlet": 3, "Walls": 4, "Obstacle": 5}
     inlet_facets = mt.indices[mt.values == markers["Inlet"]]
     inlet_dofs = dolfinx.fem.locate_dofs_topological(V, fdim, inlet_facets)
     wall_facets = mt.indices[mt.values == markers["Walls"]]
@@ -133,7 +133,7 @@ def IPCS(outdir: str, dim: int, degree_u: int,
 
     # Step 3: Velocity update
     a_up = dolfinx.fem.Form(ufl.inner(u, v) * dx, jit_parameters=jit_parameters)
-    L_up = dolfinx.fem.Form(ufl.inner(u_tent, v) * dx - w_time**(-1) * ufl.inner(ufl.grad(phi), v) * dx,
+    L_up = dolfinx.fem.Form((ufl.inner(u_tent, v) - w_time**(-1) * ufl.inner(ufl.grad(phi), v)) * dx,
                             jit_parameters=jit_parameters)
     A_up = dolfinx.fem.assemble_matrix(a_up)
     A_up.assemble()
@@ -146,38 +146,37 @@ def IPCS(outdir: str, dim: int, degree_u: int,
     solver_tent.setOperators(A_tent)
     solver_tent.setTolerances(rtol=rtol, atol=atol)
     solver_tent.rtol = rtol
-    # solver_tent.setType("bcgs")
-    # solver_tent.getPC().setType("jacobi")
-    solver_tent.setType("preonly")
-    solver_tent.getPC().setType("lu")
-    solver_tent.getPC().setFactorSolverType("mumps")
+    solver_tent.setType("bcgs")
+    solver_tent.getPC().setType("jacobi")
+    # solver_tent.setType("preonly")
+    # solver_tent.getPC().setType("lu")
+    # solver_tent.getPC().setFactorSolverType("mumps")
 
     solver_corr = PETSc.KSP().create(comm)
     solver_corr.setOperators(A_corr)
     solver_corr.setTolerances(rtol=rtol, atol=atol)
-    solver_corr.setType("preonly")
-    solver_corr.getPC().setType("lu")
-    solver_corr.getPC().setFactorSolverType("mumps")
-    # solver_corr.setInitialGuessNonzero(True)
-    # solver_corr.max_it = 200
-    # solver_corr.setType("gmres")
-    # solver_corr.getPC().setType("hypre")
-    # solver_corr.getPC().setHYPREType("boomeramg")
+    # solver_corr.setType("preonly")
+    # solver_corr.getPC().setType("lu")
+    # solver_corr.getPC().setFactorSolverType("mumps")
+    solver_corr.setInitialGuessNonzero(True)
+    solver_corr.max_it = 200
+    solver_corr.setType("gmres")
+    solver_corr.getPC().setType("hypre")
+    solver_corr.getPC().setHYPREType("boomeramg")
 
     solver_up = PETSc.KSP().create(comm)
     solver_up.setOperators(A_up)
     solver_up.setTolerances(rtol=rtol, atol=atol)
-    solver_up.setType("preonly")
-    solver_up.getPC().setType("lu")
-    solver_up.getPC().setFactorSolverType("mumps")
-    # solver_up.setInitialGuessNonzero(True)
-    # solver_up.max_it = 200
-    # solver_up.setType("cg")
-    # solver_up.getPC().setType("jacobi")
+    # solver_up.setType("preonly")
+    # solver_up.getPC().setType("lu")
+    # solver_up.getPC().setFactorSolverType("mumps")
+    solver_up.setInitialGuessNonzero(True)
+    solver_up.max_it = 200
+    solver_up.setType("cg")
+    solver_up.getPC().setType("jacobi")
 
     # Solve problem
     out_u.write_function(uh, t)
-    out_u.write_function(u_tent, t)
     out_p.write_function(ph, t)
     N = int(T / dt)
     if has_tqdm:
@@ -193,6 +192,7 @@ def IPCS(outdir: str, dim: int, degree_u: int,
             A_tent.zeroEntries()
             dolfinx.fem.assemble_matrix(A_tent, a_tent, bcs=bcs_tent)
             A_tent.assemble()
+
             b_tent.x.array[:] = 0
             dolfinx.fem.assemble_vector(b_tent.vector, L_tent)
             dolfinx.fem.assemble.apply_lifting(b_tent.vector, [a_tent], [bcs_tent])
@@ -200,7 +200,6 @@ def IPCS(outdir: str, dim: int, degree_u: int,
             dolfinx.fem.assemble.set_bc(b_tent.vector, bcs_tent)
             solver_tent.solve(b_tent.vector, u_tent.vector)
             u_tent.x.scatter_forward()
-            out_u.write_function(u_tent, t)
 
         # Solve step 2
         with dolfinx.common.Timer("~Step 2"):
@@ -215,6 +214,7 @@ def IPCS(outdir: str, dim: int, degree_u: int,
             # Update p and previous u
             ph.vector.axpy(1.0, phi.vector)
             ph.x.scatter_forward()
+
             u_old.x.array[:] = uh.x.array
             u_old.x.scatter_forward()
 
@@ -230,15 +230,24 @@ def IPCS(outdir: str, dim: int, degree_u: int,
             out_u.write_function(uh, t)
             out_p.write_function(ph, t)
 
-        print(dolfinx.fem.assemble_scalar(ufl.inner(ufl.grad(phi), ufl.grad(phi))
-              * ufl.ds(domain=mesh, subdomain_data=mt, subdomain_id=markers["Obstacle"])))
-
-        print("flux", dolfinx.fem.assemble_scalar(ufl.inner(uh, uh)
-              * ufl.ds(domain=mesh, subdomain_data=mt, subdomain_id=markers["Obstacle"])))
-
     out_u.close()
     out_p.close()
-    dolfinx.common.list_timings(comm, [dolfinx.common.TimingType.wall])
+
+    t_step_1 = MPI.COMM_WORLD.gather(dolfinx.common.timing("~Step 1"), root=0)
+    t_step_2 = MPI.COMM_WORLD.gather(dolfinx.common.timing("~Step 2"), root=0)
+    t_step_3 = MPI.COMM_WORLD.gather(dolfinx.common.timing("~Step 3"), root=0)
+    io = MPI.COMM_WORLD.gather(dolfinx.common.timing("~IO"), root=0)
+    if comm.rank == 0:
+        print("Time-step breakdown")
+        for i, step in enumerate([t_step_1, t_step_2, t_step_3]):
+            step = np.asarray(step)
+            time_per_run = step[:, 1] / step[:, 0]
+            print(f"Step {i+1}: Min time: {np.min(time_per_run):.3e}, Max time: {np.max(time_per_run):.3e}")
+        io = np.asarray(io)
+        time_per_run = io[:, 1] / io[:, 0]
+        print(f"IO {i+1}:   Min time: {np.min(time_per_run):.3e}, Max time: {np.max(time_per_run):.3e}")
+
+    # dolfinx.common.list_timings(comm, [dolfinx.common.TimingType.wall])
 
 
 if __name__ == "__main__":
