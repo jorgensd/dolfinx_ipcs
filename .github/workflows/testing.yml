@@ -75,4 +75,4 @@ jobs:
           python3 create_and_convert_3D_mesh.py
           python3 create_and_convert_2D_mesh.py
           python3 DFG_benchmark.py
-          mpirun -n 2 python3 DFG_bencmark.py --3D
+          mpirun -n 2 python3 DFG_benchmark.py --3D
