@@ -4,6 +4,7 @@
 # SPDX-License-Identifier:    MIT
 
 import argparse
+import os
 from typing import Dict
 
 import dolfinx.io
@@ -12,7 +13,7 @@ import numpy as np
 from mpi4py import MPI
 
 
-def generate_2D_channel(filename: str, res_min: float = 0.0125, res_max: float = 0.075,
+def generate_2D_channel(filename: str, outdir: str, res_min: float = 0.0125, res_max: float = 0.075,
                         markers: Dict[str, int] = {"Fluid": 1, "Inlet": 2, "Outlet": 3, "Walls": 4, "Obstacle": 5}):
     """
     Generate mesh for benchmark DFG 2D-3:
@@ -155,9 +156,9 @@ def generate_2D_channel(filename: str, res_min: float = 0.0125, res_max: float =
     ft = dolfinx.mesh.create_meshtags(mesh, fdim, adj, np.int32(local_values))
     ft.name = "Facet tags"
 
-    with dolfinx.io.XDMFFile(MPI.COMM_WORLD, f"{filename}.xdmf", "w") as xdmf:
+    with dolfinx.io.XDMFFile(MPI.COMM_WORLD, f"{outdir}/{filename}.xdmf", "w") as xdmf:
         xdmf.write_mesh(mesh)
-    with dolfinx.io.XDMFFile(MPI.COMM_WORLD, f"{filename}_facets.xdmf", "w") as xdmf:
+    with dolfinx.io.XDMFFile(MPI.COMM_WORLD, f"{outdir}/{filename}_facets.xdmf", "w") as xdmf:
         xdmf.write_mesh(mesh)
         xdmf.write_meshtags(ft)
 
@@ -173,6 +174,8 @@ if __name__ == "__main__":
                         help="Maximal mesh resolution (at outlet)")
     parser.add_argument("--filename", default="channel2D", type=str, dest="filename",
                         help="Name of output file (without XDMF extension)")
-
+    parser.add_argument("--outdir", default="meshes", type=str, dest="outdir",
+                        help="Name of output folder")
     args = parser.parse_args()
-    generate_2D_channel(args.filename, res_min=args.resmin, res_max=args.resmax)
+    os.system(f"mkdir -p {args.outdir}")
+    generate_2D_channel(args.filename, args.outdir, res_min=args.resmin, res_max=args.resmax)

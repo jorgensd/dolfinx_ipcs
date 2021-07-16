@@ -12,9 +12,9 @@ import numpy as np
 from mpi4py import MPI
 
 
-def generate_3D_channel(filename: str):
+def generate_3D_channel(filename: str, outdir: str):
     gdim = 3
-    os.system("gmsh -{gdim} -optimize_netgen cfd.geo")
+    os.system(f"gmsh -{gdim} -optimize_netgen cfd.geo")
     gmsh.initialize()
     if MPI.COMM_WORLD.rank == 0:
         gmsh.open("cfd.msh")
@@ -72,9 +72,9 @@ def generate_3D_channel(filename: str):
     ft = dolfinx.mesh.create_meshtags(mesh, fdim, adj, np.int32(local_values))
     ft.name = "Facet tags"
 
-    with dolfinx.io.XDMFFile(MPI.COMM_WORLD, f"{filename}.xdmf", "w") as xdmf:
+    with dolfinx.io.XDMFFile(MPI.COMM_WORLD, f"{outdir}/{filename}.xdmf", "w") as xdmf:
         xdmf.write_mesh(mesh)
-    with dolfinx.io.XDMFFile(MPI.COMM_WORLD, f"{filename}_facets.xdmf", "w") as xdmf:
+    with dolfinx.io.XDMFFile(MPI.COMM_WORLD, f"{outdir}/{filename}_facets.xdmf", "w") as xdmf:
         xdmf.write_mesh(mesh)
         xdmf.write_meshtags(ft)
 
@@ -85,5 +85,8 @@ if __name__ == "__main__":
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("--filename", default="channel3D", type=str, dest="filename",
                         help="Name of output file (without XDMF extension)")
-    args = parser.parse_args
-    generate_3D_channel(args.filename)
+    parser.add_argument("--outdir", default="meshes", type=str, dest="outdir",
+                        help="Name of output folder")
+    args = parser.parse_args()
+    os.system(f"mkdir -p {args.outdir}")
+    generate_3D_channel(args.filename, args.outdir)

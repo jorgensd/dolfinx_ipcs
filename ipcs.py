@@ -14,15 +14,16 @@ from petsc4py import PETSc
 comm = MPI.COMM_WORLD
 
 
-def compute_l2_time_err(dt, errors):
+def compute_l2_time_err(dt:np.float64, errors:np.ndarray):
     return np.sqrt(dt * sum(errors))
 
 
-def compute_eoc(errors):
+def compute_eoc(errors: np.ndarray):
     return np.log(errors[:-1] / errors[1:]) / np.log(2)
 
 
-def IPCS(r_lvl, t_lvl, degree_u=2):
+def IPCS(r_lvl:int, t_lvl:int, degree_u=2, 
+jit_parameters: dict ={"cffi_extra_compile_args": ["-Ofast", "-march=native"], "cffi_libraries": ["m"]}):
     # Define mesh and function spaces
     N = 10 * 2**r_lvl
     mesh = dolfinx.RectangleMesh(comm, [np.array([-1.0, -1.0, 0.0]),
@@ -104,8 +105,10 @@ def IPCS(r_lvl, t_lvl, degree_u=2):
     u_bc = dolfinx.Function(V)
     u_bc.interpolate(u_ex(t + dt, nu))
     bcs_tent = [dolfinx.DirichletBC(u_bc, bdofsV)]
+    a_tent = dolfinx.fem.Form(a_tent, jit_parameters=jit_parameters)
     A_tent = dolfinx.fem.assemble_matrix(a_tent, bcs=bcs_tent)
     A_tent.assemble()
+    L_tent = dolfinx.fem.Form(L_tent, jit_parameters=jit_parameters)
     b_tent = dolfinx.fem.assemble_vector(L_tent)
     b_tent.assemble()
 
@@ -115,10 +118,11 @@ def IPCS(r_lvl, t_lvl, degree_u=2):
     a_corr = ufl.inner(ufl.grad(p), ufl.grad(q)) * ufl.dx
     L_corr = - w_time * ufl.inner(ufl.div(u_tent), q) * ufl.dx
     nullspace = PETSc.NullSpace().create(constant=True)
+    a_corr = dolfinx.fem.Form(a_corr, jit_parameters=jit_parameters)
     A_corr = dolfinx.fem.assemble_matrix(a_corr)
     A_corr.setNullSpace(nullspace)
     A_corr.assemble()
-
+    L_tent = dolfinx.fem.Form(L_tent, jit_parameters=jit_parameters)
     b_corr = dolfinx.fem.assemble_vector(L_corr)
     b_corr.assemble()
 
@@ -126,9 +130,11 @@ def IPCS(r_lvl, t_lvl, degree_u=2):
     a_up = ufl.inner(u, v) * ufl.dx
     L_up = (ufl.inner(u_tent, v) - w_time**(-1)
             * ufl.inner(ufl.grad(phi), v)) * ufl.dx
+    a_up = dolfinx.fem.Form(a_up, jit_parameters=jit_parameters)
     A_up = dolfinx.fem.assemble_matrix(a_up)
     A_up.assemble()
 
+    L_up = dolfinx.fem.Form(L_up, jit_parameters=jit_parameters)
     b_up = dolfinx.fem.assemble_vector(L_up)
     b_up.assemble()
 

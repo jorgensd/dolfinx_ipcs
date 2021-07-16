@@ -1,3 +1,6 @@
 *.vtu
 *.pvtu
 *.pvd
+
+*.xdmf
+*.h5
