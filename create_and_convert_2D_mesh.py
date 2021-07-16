@@ -13,7 +13,7 @@ import numpy as np
 from mpi4py import MPI
 
 
-def generate_2D_channel(filename: str, outdir: str, res_min: float = 0.0125, res_max: float = 0.075,
+def generate_2D_channel(filename: str, outdir: str, res_min: float = 0.01, res_max: float = 0.05,
                         markers: Dict[str, int] = {"Fluid": 1, "Inlet": 2, "Outlet": 3, "Walls": 4, "Obstacle": 5}):
     """
     Generate mesh for benchmark DFG 2D-3:
@@ -168,9 +168,9 @@ if __name__ == "__main__":
         description="GMSH scripts to generate the mesh for the DFG 2D-3 benchmark"
         + "http://www.mathematik.tu-dortmund.de/~featflow/en/benchmarks/cfdbenchmarking/flow/dfg_benchmark3_re100.html",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument("--res-min", default=0.0125, type=np.float64, dest="resmin",
+    parser.add_argument("--res-min", default=0.01, type=np.float64, dest="resmin",
                         help="Minimal mesh resolution (at obstacle)")
-    parser.add_argument("--res-max", default=0.075, type=np.float64, dest="resmax",
+    parser.add_argument("--res-max", default=0.05, type=np.float64, dest="resmax",
                         help="Maximal mesh resolution (at outlet)")
     parser.add_argument("--filename", default="channel2D", type=str, dest="filename",
                         help="Name of output file (without XDMF extension)")

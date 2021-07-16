@@ -1,5 +1,5 @@
 SetFactory("OpenCASCADE");
-lc = 0.01;
+lc = 0.02;
 Box(1) = {0, 0, 0, 2.5, 0.41, 0.41};
 Cylinder(2) = {0.5,0.2,-1, 0.0,0.0,20, 0.05};
 
@@ -17,8 +17,8 @@ Field[7] = Min;
 Field[7].FieldsList = {2};
 Background Field = 7;
 
-Physical Volume("Fluid", 5) = {3};
-Physical Surface("Inlet", 1) = {1};
-Physical Surface("Outlet", 2) = {6};
-Physical Surface("Walls", 3) = {5, 3, 2, 4};
-Physical Surface("Obstacle", 4) = {7};
+Physical Volume("Fluid", 1) = {3};
+Physical Surface("Inlet", 2) = {1};
+Physical Surface("Outlet", 3) = {6};
+Physical Surface("Walls", 4) = {5, 3, 2, 4};
+Physical Surface("Obstacle", 5) = {7};

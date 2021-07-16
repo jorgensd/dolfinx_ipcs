@@ -14,7 +14,7 @@ from petsc4py import PETSc
 comm = MPI.COMM_WORLD
 
 
-def compute_l2_time_err(dt:np.float64, errors:np.ndarray):
+def compute_l2_time_err(dt: np.float64, errors: np.ndarray):
     return np.sqrt(dt * sum(errors))
 
 
@@ -22,8 +22,8 @@ def compute_eoc(errors: np.ndarray):
     return np.log(errors[:-1] / errors[1:]) / np.log(2)
 
 
-def IPCS(r_lvl:int, t_lvl:int, outdir:str, degree_u=2, 
-         jit_parameters: dict ={"cffi_extra_compile_args": ["-Ofast", "-march=native"], "cffi_libraries": ["m"]}):
+def IPCS(r_lvl: int, t_lvl: int, outdir: str, degree_u=2,
+         jit_parameters: dict = {"cffi_extra_compile_args": ["-Ofast", "-march=native"], "cffi_libraries": ["m"]}):
     # Define mesh and function spaces
     N = 10 * 2**r_lvl
     mesh = dolfinx.RectangleMesh(comm, [np.array([-1.0, -1.0, 0.0]),
@@ -85,7 +85,7 @@ def IPCS(r_lvl:int, t_lvl:int, outdir:str, degree_u=2,
     v = ufl.TestFunction(V)
     dx = ufl.Measure("dx", domain=mesh)
 
-    # Step 1: Tentative velocity step
+    # ----Step 1: Tentative velocity step----
     w_time = dolfinx.Constant(mesh, 3 / (2 * dt))
     w_diffusion = dolfinx.Constant(mesh, nu)
     a_tent = (w_time * ufl.inner(u, v) + w_diffusion
@@ -99,7 +99,8 @@ def IPCS(r_lvl:int, t_lvl:int, outdir:str, degree_u=2,
     # Temam-device
     a_tent += dolfinx.Constant(mesh, 0.5) * ufl.div(bs) * ufl.inner(u, v) * dx
     # Find boundary facets and create boundary condition
-    bndry_facets = dolfinx.mesh.locate_entities_boundary(mesh, mesh.topology.dim-1, lambda x: np.ones(x.shape[1], dtype=bool))
+    bndry_facets = dolfinx.mesh.locate_entities_boundary(
+        mesh, mesh.topology.dim - 1, lambda x: np.ones(x.shape[1], dtype=bool))
     bdofsV = dolfinx.fem.locate_dofs_topological(V, facetdim, bndry_facets)
     u_bc = dolfinx.Function(V)
     u_bc.interpolate(u_ex(t + dt, nu))
@@ -111,7 +112,7 @@ def IPCS(r_lvl:int, t_lvl:int, outdir:str, degree_u=2,
     b_tent = dolfinx.fem.assemble_vector(L_tent)
     b_tent.assemble()
 
-    # Step 2: Pressure correction step
+    # ----Step 2: Pressure correction step----
     p = ufl.TrialFunction(Q)
     q = ufl.TestFunction(Q)
     a_corr = ufl.inner(ufl.grad(p), ufl.grad(q)) * dx
@@ -125,7 +126,7 @@ def IPCS(r_lvl:int, t_lvl:int, outdir:str, degree_u=2,
     b_corr = dolfinx.fem.assemble_vector(L_corr)
     b_corr.assemble()
 
-    # Step 3: Velocity update
+    # ----Step 3: Velocity update----
     a_up = ufl.inner(u, v) * dx
     L_up = (ufl.inner(u_tent, v) - w_time**(-1)
             * ufl.inner(ufl.grad(phi), v)) * dx
@@ -267,10 +268,10 @@ def IPCS(r_lvl:int, t_lvl:int, outdir:str, degree_u=2,
 
 
 if __name__ == "__main__":
+    desc = "Script to run convergence study for a manufactured solution for the Navier-Stokes equations" +\
+        " using the IPCS splitting scheme."
     parser = argparse.ArgumentParser(
-        description="GMSH scripts to generate the mesh for the DFG 2D-3 benchmark"
-        + "http://www.mathematik.tu-dortmund.de/~featflow/en/benchmarks/cfdbenchmarking/flow/dfg_benchmark3_re100.html",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+        description=desc, formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("--spatial", default=5, type=int, dest="R_ref",
                         help="Number of spatial refinements")
     parser.add_argument("--temporal", default=5, type=int, dest="T_ref",
