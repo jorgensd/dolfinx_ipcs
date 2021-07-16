@@ -22,8 +22,8 @@ def compute_eoc(errors: np.ndarray):
     return np.log(errors[:-1] / errors[1:]) / np.log(2)
 
 
-def IPCS(r_lvl:int, t_lvl:int, degree_u=2, 
-jit_parameters: dict ={"cffi_extra_compile_args": ["-Ofast", "-march=native"], "cffi_libraries": ["m"]}):
+def IPCS(r_lvl:int, t_lvl:int, outdir:str, degree_u=2, 
+         jit_parameters: dict ={"cffi_extra_compile_args": ["-Ofast", "-march=native"], "cffi_libraries": ["m"]}):
     # Define mesh and function spaces
     N = 10 * 2**r_lvl
     mesh = dolfinx.RectangleMesh(comm, [np.array([-1.0, -1.0, 0.0]),
@@ -83,24 +83,23 @@ jit_parameters: dict ={"cffi_extra_compile_args": ["-Ofast", "-march=native"], "
     # Define variational forms
     u = ufl.TrialFunction(V)
     v = ufl.TestFunction(V)
+    dx = ufl.Measure("dx", domain=mesh)
 
     # Step 1: Tentative velocity step
     w_time = dolfinx.Constant(mesh, 3 / (2 * dt))
     w_diffusion = dolfinx.Constant(mesh, nu)
     a_tent = (w_time * ufl.inner(u, v) + w_diffusion
-              * ufl.inner(ufl.grad(u), ufl.grad(v))) * ufl.dx
-    L_tent = (ufl.inner(ph, ufl.div(v)) + ufl.inner(f, v)) * ufl.dx
+              * ufl.inner(ufl.grad(u), ufl.grad(v))) * dx
+    L_tent = (ufl.inner(ph, ufl.div(v)) + ufl.inner(f, v)) * dx
     L_tent += dolfinx.Constant(mesh, 1 / (2 * dt)) *\
-        ufl.inner(dolfinx.Constant(mesh, 4) * uh - u_old, v) * ufl.dx
+        ufl.inner(dolfinx.Constant(mesh, 4) * uh - u_old, v) * dx
     # BDF2 with implicit Adams-Bashforth
     bs = dolfinx.Constant(mesh, 2) * uh - u_old
-    a_tent += ufl.inner(ufl.grad(u) * bs, v) * ufl.dx
+    a_tent += ufl.inner(ufl.grad(u) * bs, v) * dx
     # Temam-device
-    a_tent += dolfinx.Constant(mesh, 0.5) * ufl.div(bs) * ufl.inner(u, v) * ufl.dx
+    a_tent += dolfinx.Constant(mesh, 0.5) * ufl.div(bs) * ufl.inner(u, v) * dx
     # Find boundary facets and create boundary condition
-    mesh.topology.create_connectivity(facetdim, celldim)
-    bndry_facets = np.where(np.array(
-        dolfinx.cpp.mesh.compute_boundary_facets(mesh.topology)) == 1)[0]
+    bndry_facets = dolfinx.mesh.locate_entities_boundary(mesh, mesh.topology.dim-1, lambda x: np.ones(x.shape[1], dtype=bool))
     bdofsV = dolfinx.fem.locate_dofs_topological(V, facetdim, bndry_facets)
     u_bc = dolfinx.Function(V)
     u_bc.interpolate(u_ex(t + dt, nu))
@@ -115,21 +114,21 @@ jit_parameters: dict ={"cffi_extra_compile_args": ["-Ofast", "-march=native"], "
     # Step 2: Pressure correction step
     p = ufl.TrialFunction(Q)
     q = ufl.TestFunction(Q)
-    a_corr = ufl.inner(ufl.grad(p), ufl.grad(q)) * ufl.dx
-    L_corr = - w_time * ufl.inner(ufl.div(u_tent), q) * ufl.dx
+    a_corr = ufl.inner(ufl.grad(p), ufl.grad(q)) * dx
+    L_corr = - w_time * ufl.inner(ufl.div(u_tent), q) * dx
     nullspace = PETSc.NullSpace().create(constant=True)
     a_corr = dolfinx.fem.Form(a_corr, jit_parameters=jit_parameters)
     A_corr = dolfinx.fem.assemble_matrix(a_corr)
     A_corr.setNullSpace(nullspace)
     A_corr.assemble()
-    L_tent = dolfinx.fem.Form(L_tent, jit_parameters=jit_parameters)
+    L_corr = dolfinx.fem.Form(L_corr, jit_parameters=jit_parameters)
     b_corr = dolfinx.fem.assemble_vector(L_corr)
     b_corr.assemble()
 
     # Step 3: Velocity update
-    a_up = ufl.inner(u, v) * ufl.dx
+    a_up = ufl.inner(u, v) * dx
     L_up = (ufl.inner(u_tent, v) - w_time**(-1)
-            * ufl.inner(ufl.grad(phi), v)) * ufl.dx
+            * ufl.inner(ufl.grad(phi), v)) * dx
     a_up = dolfinx.fem.Form(a_up, jit_parameters=jit_parameters)
     A_up = dolfinx.fem.assemble_matrix(a_up)
     A_up.assemble()
@@ -167,14 +166,14 @@ jit_parameters: dict ={"cffi_extra_compile_args": ["-Ofast", "-march=native"], "
     p_err = dolfinx.Function(Q_err)
 
     # Create file for output
-    outfile = dolfinx.io.XDMFFile(comm, "output.xdmf", "w")
+    outfile = dolfinx.io.XDMFFile(comm, f"{outdir}/output.xdmf", "w")
     outfile.write_mesh(mesh)
 
     # Solve problem
     l2_u = np.zeros(int(T / dt), dtype=np.float64)
     l2_p = np.zeros(int(T / dt), dtype=np.float64)
     vol = mesh.mpi_comm().allreduce(
-        dolfinx.fem.assemble_scalar(dolfinx.Constant(mesh, 1) * ufl.dx),
+        dolfinx.fem.assemble_scalar(dolfinx.Constant(mesh, 1) * dx),
         op=MPI.SUM)
     i = 0
     outfile.write_function(uh, t)
@@ -218,7 +217,7 @@ jit_parameters: dict ={"cffi_extra_compile_args": ["-Ofast", "-march=native"], "
 
         # Normalize pressure correction
         phi_avg = mesh.mpi_comm().allreduce(
-            dolfinx.fem.assemble_scalar(phi * ufl.dx) / vol,
+            dolfinx.fem.assemble_scalar(phi * dx) / vol,
             op=MPI.SUM)
         avg_vec = phi.vector.copy()
         with avg_vec.localForm() as avg_local:
@@ -278,7 +277,8 @@ if __name__ == "__main__":
                         help="Number of temporal refinements")
     parser.add_argument("--degree-u", default=2, type=int, dest="degree",
                         help="Degree of velocity space")
-
+    parser.add_argument("--outdir", default="results", type=str, dest="outdir",
+                        help="Name of output folder")
     args = parser.parse_args()
     R_ref = args.R_ref
     T_ref = args.T_ref
@@ -286,7 +286,7 @@ if __name__ == "__main__":
     errors_p = np.zeros((R_ref, T_ref), dtype=np.float64)
     for i in range(R_ref):
         for j in range(T_ref):
-            errors_u[i, j], errors_p[i, j] = IPCS(i, j, degree_u=args.degree)
+            errors_u[i, j], errors_p[i, j] = IPCS(i, j, args.outdir, degree_u=args.degree)
             print(f"{i}, {j}, {errors_u[i, j]}, {errors_p[i, j]}")
 
     print(f"Temporal eoc u {compute_eoc(errors_u[-1, :])}")
