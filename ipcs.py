@@ -8,6 +8,7 @@ import dolfinx
 import dolfinx.io
 import numpy as np
 import ufl
+import os
 from mpi4py import MPI
 from petsc4py import PETSc
 
@@ -279,6 +280,7 @@ if __name__ == "__main__":
     T_ref = args.T_ref
     errors_u = np.zeros((R_ref, T_ref), dtype=np.float64)
     errors_p = np.zeros((R_ref, T_ref), dtype=np.float64)
+    os.system(f"mkdir -p {args.outdir}")
     for i in range(R_ref):
         for j in range(T_ref):
             errors_u[i, j], errors_p[i, j] = IPCS(i, j, args.outdir, degree_u=args.degree)
