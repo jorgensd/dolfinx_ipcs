@@ -143,7 +143,8 @@ def generate_2D_channel(filename: str, outdir: str, res_min: float = 0.01, res_m
     tdim = mesh.topology.dim
     fdim = tdim - 1
     # Permute facets from MSH to DOLFINx ordering
-    facet_type = dolfinx.cpp.mesh.cell_entity_type(dolfinx.cpp.mesh.to_type(str(ufl_domain.ufl_cell())), fdim)
+    # FIXME: Last argument in cell entity type has to be changed with prism cells
+    facet_type = dolfinx.cpp.mesh.cell_entity_type(dolfinx.cpp.mesh.to_type(str(ufl_domain.ufl_cell())), fdim, 0)
     gmsh_facet_perm = dolfinx.cpp.io.perm_gmsh(facet_type, num_facet_nodes)
     marked_facets = np.asarray(marked_facets[:, gmsh_facet_perm], dtype=np.int64)
 
