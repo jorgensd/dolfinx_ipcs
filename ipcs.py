@@ -29,7 +29,7 @@ def IPCS(r_lvl: int, t_lvl: int, outdir: str, degree_u=2,
     N = 10 * 2**r_lvl
     mesh = dolfinx.RectangleMesh(comm, [np.array([-1.0, -1.0, 0.0]),
                                         np.array([2.0, 2.0, 0.0])],
-                                 [N, N], dolfinx.cpp.mesh.CellType.triangle)
+                                 [N, N], dolfinx.mesh.CellType.triangle)
     celldim = mesh.topology.dim
     facetdim = celldim - 1
     degree_p = degree_u - 1
@@ -97,8 +97,10 @@ def IPCS(r_lvl: int, t_lvl: int, outdir: str, degree_u=2,
     # BDF2 with implicit Adams-Bashforth
     bs = dolfinx.Constant(mesh, 2) * uh - u_old
     a_tent += ufl.inner(ufl.grad(u) * bs, v) * dx
+
     # Temam-device
     a_tent += dolfinx.Constant(mesh, 0.5) * ufl.div(bs) * ufl.inner(u, v) * dx
+
     # Find boundary facets and create boundary condition
     bndry_facets = dolfinx.mesh.locate_entities_boundary(
         mesh, mesh.topology.dim - 1, lambda x: np.ones(x.shape[1], dtype=bool))
@@ -129,8 +131,7 @@ def IPCS(r_lvl: int, t_lvl: int, outdir: str, degree_u=2,
 
     # ----Step 3: Velocity update----
     a_up = ufl.inner(u, v) * dx
-    L_up = (ufl.inner(u_tent, v) - w_time**(-1)
-            * ufl.inner(ufl.grad(phi), v)) * dx
+    L_up = (ufl.inner(u_tent, v) - w_time**(-1) * ufl.inner(ufl.grad(phi), v)) * dx
     a_up = dolfinx.fem.Form(a_up, jit_parameters=jit_parameters)
     A_up = dolfinx.fem.assemble_matrix(a_up)
     A_up.assemble()
@@ -174,9 +175,15 @@ def IPCS(r_lvl: int, t_lvl: int, outdir: str, degree_u=2,
     # Solve problem
     l2_u = np.zeros(int(T / dt), dtype=np.float64)
     l2_p = np.zeros(int(T / dt), dtype=np.float64)
-    vol = mesh.mpi_comm().allreduce(
-        dolfinx.fem.assemble_scalar(dolfinx.Constant(mesh, 1) * dx),
-        op=MPI.SUM)
+    vol_form = dolfinx.fem.Form(dolfinx.Constant(mesh, 1) * dx, jit_parameters=jit_parameters)
+    vol = mesh.mpi_comm().allreduce(dolfinx.fem.assemble_scalar(vol_form), op=MPI.SUM)
+
+    # Setup error forms
+    error_u_L2 = dolfinx.fem.Form(ufl.inner(uh - u_err, uh - u_err) * ufl.dx,
+                                  jit_parameters=jit_parameters)
+    error_p_L2 = dolfinx.fem.Form(ufl.inner(ph - p_err, ph - p_err) * ufl.dx,
+                                  jit_parameters=jit_parameters)
+
     i = 0
     outfile.write_function(uh, t)
     outfile.write_function(ph, t)
@@ -199,8 +206,7 @@ def IPCS(r_lvl: int, t_lvl: int, outdir: str, degree_u=2,
                            mode=PETSc.ScatterMode.REVERSE)
         dolfinx.fem.assemble.set_bc(b_tent, bcs_tent)
         solver_tent.solve(b_tent, u_tent.vector)
-        u_tent.vector.ghostUpdate(addv=PETSc.InsertMode.INSERT,
-                                  mode=PETSc.ScatterMode.FORWARD)
+        u_tent.x.scatter_forward()
 
         # Solve step 2
         A_corr.zeroEntries()
@@ -208,12 +214,11 @@ def IPCS(r_lvl: int, t_lvl: int, outdir: str, degree_u=2,
         A_corr.assemble()
         with b_corr.localForm() as b_local:
             b_local.set(0.0)
-
         dolfinx.fem.assemble_vector(b_corr, L_corr)
         b_corr.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
         b_corr.assemble()
         solver_corr.solve(b_corr, phi.vector)
-        phi.vector.ghostUpdate(addv=PETSc.InsertMode.INSERT, mode=PETSc.ScatterMode.FORWARD)
+        phi.x.scatter_forward()
 
         # Normalize pressure correction
         phi_avg = mesh.mpi_comm().allreduce(
@@ -223,12 +228,12 @@ def IPCS(r_lvl: int, t_lvl: int, outdir: str, degree_u=2,
         with avg_vec.localForm() as avg_local:
             avg_local.set(-phi_avg)
         phi.vector.axpy(1.0, avg_vec)
-        phi.vector.ghostUpdate(addv=PETSc.InsertMode.INSERT, mode=PETSc.ScatterMode.FORWARD)
+        phi.x.scatter_forward()
         # Update p and previous u
         ph.vector.axpy(1.0, phi.vector)
-        ph.vector.ghostUpdate(addv=PETSc.InsertMode.INSERT, mode=PETSc.ScatterMode.FORWARD)
+        ph.x.scatter_forward()
         uh.vector.copy(result=u_old.vector)
-        u_old.vector.ghostUpdate(addv=PETSc.InsertMode.INSERT, mode=PETSc.ScatterMode.FORWARD)
+        u_old.x.scatter_forward()
 
         # Solve step 3
         A_up.zeroEntries()
@@ -239,15 +244,11 @@ def IPCS(r_lvl: int, t_lvl: int, outdir: str, degree_u=2,
         dolfinx.fem.assemble_vector(b_up, L_up)
         b_up.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
         solver_up.solve(b_up, uh.vector)
-        uh.vector.ghostUpdate(addv=PETSc.InsertMode.INSERT, mode=PETSc.ScatterMode.FORWARD)
+        uh.x.scatter_forward()
 
         # Compute L2 error norms
-        uL2 = mesh.mpi_comm().allreduce(
-            dolfinx.fem.assemble_scalar(ufl.inner(uh - u_err, uh - u_err) * ufl.dx),
-            op=MPI.SUM)
-        pL2 = mesh.mpi_comm().allreduce(
-            dolfinx.fem.assemble_scalar(ufl.inner(ph - p_err, ph - p_err) * ufl.dx),
-            op=MPI.SUM)
+        uL2 = mesh.mpi_comm().allreduce(dolfinx.fem.assemble_scalar(error_u_L2), op=MPI.SUM)
+        pL2 = mesh.mpi_comm().allreduce(dolfinx.fem.assemble_scalar(error_p_L2), op=MPI.SUM)
         l2_u[i] = uL2
         l2_p[i] = pL2
 
