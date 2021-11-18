@@ -148,7 +148,7 @@ def generate_2D_channel(filename: str, outdir: str, res_min: float = 0.01, res_m
     gmsh_facet_perm = dolfinx.cpp.io.perm_gmsh(facet_type, num_facet_nodes)
     marked_facets = np.asarray(marked_facets[:, gmsh_facet_perm], dtype=np.int64)
 
-    local_entities, local_values = dolfinx.cpp.io.extract_local_entities(mesh, fdim, marked_facets, facet_values)
+    local_entities, local_values = dolfinx.cpp.io.distribute_entity_data(mesh, fdim, marked_facets, facet_values)
     mesh.topology.create_connectivity(fdim, tdim)
     adj = dolfinx.cpp.graph.AdjacencyList_int32(local_entities)
 
