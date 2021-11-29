@@ -1,10 +1,9 @@
 import argparse
 import os
 
-import dolfinx
-import dolfinx.io
 import numpy as np
 import ufl
+from dolfinx import common, fem, io, log, cpp
 from mpi4py import MPI
 from petsc4py import PETSc
 
@@ -17,7 +16,7 @@ except ModuleNotFoundError:
     has_tqdm = False
     print("To view progress with progressbar please install tqdm: `pip3 install tqdm`")
 
-dolfinx.log.set_log_level(dolfinx.log.LogLevel.ERROR)
+log.set_log_level(log.LogLevel.ERROR)
 
 
 def IPCS(outdir: str, dim: int, degree_u: int,
@@ -26,25 +25,25 @@ def IPCS(outdir: str, dim: int, degree_u: int,
 
     # Read in mesh
     comm = MPI.COMM_WORLD
-    with dolfinx.io.XDMFFile(comm, f"meshes/channel{dim}D.xdmf", "r") as xdmf:
+    with io.XDMFFile(comm, f"meshes/channel{dim}D.xdmf", "r") as xdmf:
         mesh = xdmf.read_mesh(name="mesh")
         tdim = mesh.topology.dim
         fdim = tdim - 1
         mesh.topology.create_connectivity(tdim, tdim)
         mesh.topology.create_connectivity(fdim, tdim)
 
-    with dolfinx.io.XDMFFile(comm, f"meshes/channel{dim}D_facets.xdmf", "r") as xdmf:
+    with io.XDMFFile(comm, f"meshes/channel{dim}D_facets.xdmf", "r") as xdmf:
         mt = xdmf.read_meshtags(mesh, "Facet tags")
 
     # Create output files
-    out_u = dolfinx.io.XDMFFile(comm, f"{outdir}/u_{dim}D.xdmf", "w")
+    out_u = io.XDMFFile(comm, f"{outdir}/u_{dim}D.xdmf", "w")
     out_u.write_mesh(mesh)
-    out_p = dolfinx.io.XDMFFile(comm, f"{outdir}/p_{dim}D.xdmf", "w")
+    out_p = io.XDMFFile(comm, f"{outdir}/p_{dim}D.xdmf", "w")
     out_p.write_mesh(mesh)
 
     # Define function spaces
-    V = dolfinx.VectorFunctionSpace(mesh, ("CG", degree_u))
-    Q = dolfinx.FunctionSpace(mesh, ("CG", degree_u - 1))
+    V = fem.VectorFunctionSpace(mesh, ("CG", degree_u))
+    Q = fem.FunctionSpace(mesh, ("CG", degree_u - 1))
 
     # Temporal parameters
     t = 0
@@ -53,19 +52,19 @@ def IPCS(outdir: str, dim: int, degree_u: int,
 
     # Physical parameters
     nu = 0.001
-    f = dolfinx.Constant(mesh, (0,) * mesh.geometry.dim)
+    f = fem.Constant(mesh, (0,) * mesh.geometry.dim)
     H = 0.41
     Um = 2.25
 
     # Define functions for the variational form
-    uh = dolfinx.Function(V)
+    uh = fem.Function(V)
     uh.name = "Velocity"
-    u_tent = dolfinx.Function(V)
+    u_tent = fem.Function(V)
     u_tent.name = "Tentative_velocity"
-    u_old = dolfinx.Function(V)
-    ph = dolfinx.Function(Q)
+    u_old = fem.Function(V)
+    ph = fem.Function(Q)
     ph.name = "Pressure"
-    phi = dolfinx.Function(Q)
+    phi = fem.Function(Q)
     phi.name = "Phi"
 
     # Define variational forms
@@ -74,24 +73,24 @@ def IPCS(outdir: str, dim: int, degree_u: int,
     dx = ufl.Measure("dx", domain=mesh)
 
     # ----Step 1: Tentative velocity step----
-    w_time = dolfinx.Constant(mesh, 3 / (2 * dt))
-    w_diffusion = dolfinx.Constant(mesh, nu)
+    w_time = fem.Constant(mesh, 3 / (2 * dt))
+    w_diffusion = fem.Constant(mesh, nu)
     a_tent = w_time * ufl.inner(u, v) * dx + w_diffusion * ufl.inner(ufl.grad(u), ufl.grad(v)) * dx
     L_tent = (ufl.inner(ph, ufl.div(v)) + ufl.inner(f, v)) * dx
-    L_tent += dolfinx.Constant(mesh, 1 / (2 * dt)) * ufl.inner(dolfinx.Constant(mesh, 4) * uh - u_old, v) * dx
+    L_tent += fem.Constant(mesh, 1 / (2 * dt)) * ufl.inner(fem.Constant(mesh, 4) * uh - u_old, v) * dx
     # BDF2 with implicit Adams-Bashforth
-    bs = dolfinx.Constant(mesh, 2) * uh - u_old
+    bs = fem.Constant(mesh, 2) * uh - u_old
     a_tent += ufl.inner(ufl.grad(u) * bs, v) * dx
     # Temam-device
-    a_tent += dolfinx.Constant(mesh, 0.5) * ufl.div(bs) * ufl.inner(u, v) * dx
+    a_tent += fem.Constant(mesh, 0.5) * ufl.div(bs) * ufl.inner(u, v) * dx
 
     # Find boundary facets and create boundary condition
     inlet_facets = mt.indices[mt.values == markers["Inlet"]]
-    inlet_dofs = dolfinx.fem.locate_dofs_topological(V, fdim, inlet_facets)
+    inlet_dofs = fem.locate_dofs_topological(V, fdim, inlet_facets)
     wall_facets = mt.indices[mt.values == markers["Walls"]]
-    wall_dofs = dolfinx.fem.locate_dofs_topological(V, fdim, wall_facets)
+    wall_dofs = fem.locate_dofs_topological(V, fdim, wall_facets)
     obstacle_facets = mt.indices[mt.values == markers["Obstacle"]]
-    obstacle_dofs = dolfinx.fem.locate_dofs_topological(V, fdim, obstacle_facets)
+    obstacle_dofs = fem.locate_dofs_topological(V, fdim, obstacle_facets)
 
     def inlet_velocity(t):
         if mesh.geometry.dim == 3:
@@ -101,43 +100,43 @@ def IPCS(outdir: str, dim: int, degree_u: int,
             U = 1.5 * np.sin(np.pi * t / T)
             return lambda x: np.row_stack((4 * U * x[1] * (0.41 - x[1]) / (0.41**2), np.zeros(x.shape[1])))
 
-    u_inlet = dolfinx.Function(V)
+    u_inlet = fem.Function(V)
     u_inlet.interpolate(inlet_velocity(t))
-    u_zero = dolfinx.Function(V)
+    u_zero = fem.Function(V)
     u_zero.x.array[:] = 0.0
 
-    bcs_tent = [dolfinx.DirichletBC(u_inlet, inlet_dofs), dolfinx.DirichletBC(
-        u_zero, wall_dofs), dolfinx.DirichletBC(u_zero, obstacle_dofs)]
-    a_tent = dolfinx.Form(a_tent, jit_parameters=jit_parameters)
-    A_tent = dolfinx.fem.assemble_matrix(a_tent, bcs=bcs_tent)
+    bcs_tent = [fem.DirichletBC(u_inlet, inlet_dofs), fem.DirichletBC(
+        u_zero, wall_dofs), fem.DirichletBC(u_zero, obstacle_dofs)]
+    a_tent = fem.Form(a_tent, jit_parameters=jit_parameters)
+    A_tent = fem.assemble_matrix(a_tent, bcs=bcs_tent)
     A_tent.assemble()
-    L_tent = dolfinx.Form(L_tent, jit_parameters=jit_parameters)
-    b_tent = dolfinx.Function(V)
+    L_tent = fem.Form(L_tent, jit_parameters=jit_parameters)
+    b_tent = fem.Function(V)
 
     # Step 2: Pressure correction step
     outlet_facets = mt.indices[mt.values == markers["Outlet"]]
-    outlet_dofs = dolfinx.fem.locate_dofs_topological(Q, fdim, outlet_facets)
-    p_zero = dolfinx.Function(Q)
+    outlet_dofs = fem.locate_dofs_topological(Q, fdim, outlet_facets)
+    p_zero = fem.Function(Q)
     p_zero.x.array[:] = 0
-    bcs_corr = [dolfinx.DirichletBC(p_zero, outlet_dofs)]
+    bcs_corr = [fem.DirichletBC(p_zero, outlet_dofs)]
     p = ufl.TrialFunction(Q)
     q = ufl.TestFunction(Q)
     a_corr = ufl.inner(ufl.grad(p), ufl.grad(q)) * dx
     L_corr = - w_time * ufl.inner(ufl.div(u_tent), q) * dx
-    a_corr = dolfinx.Form(a_corr, jit_parameters=jit_parameters)
-    A_corr = dolfinx.fem.assemble_matrix(a_corr, bcs=bcs_corr)
+    a_corr = fem.Form(a_corr, jit_parameters=jit_parameters)
+    A_corr = fem.assemble_matrix(a_corr, bcs=bcs_corr)
     A_corr.assemble()
 
-    b_corr = dolfinx.Function(Q)
-    L_corr = dolfinx.Form(L_corr, jit_parameters=jit_parameters)
+    b_corr = fem.Function(Q)
+    L_corr = fem.Form(L_corr, jit_parameters=jit_parameters)
 
     # Step 3: Velocity update
-    a_up = dolfinx.fem.Form(ufl.inner(u, v) * dx, jit_parameters=jit_parameters)
-    L_up = dolfinx.fem.Form((ufl.inner(u_tent, v) - w_time**(-1) * ufl.inner(ufl.grad(phi), v)) * dx,
-                            jit_parameters=jit_parameters)
-    A_up = dolfinx.fem.assemble_matrix(a_up)
+    a_up = fem.Form(ufl.inner(u, v) * dx, jit_parameters=jit_parameters)
+    L_up = fem.Form((ufl.inner(u_tent, v) - w_time**(-1) * ufl.inner(ufl.grad(phi), v)) * dx,
+                    jit_parameters=jit_parameters)
+    A_up = fem.assemble_matrix(a_up)
     A_up.assemble()
-    b_up = dolfinx.Function(V)
+    b_up = fem.Function(V)
 
     # Setup solvers
     rtol = 1e-8
@@ -187,27 +186,27 @@ def IPCS(outdir: str, dim: int, degree_u: int,
 
         t += dt
         # Solve step 1
-        with dolfinx.common.Timer("~Step 1"):
+        with common.Timer("~Step 1"):
             u_inlet.interpolate(inlet_velocity(t))
             A_tent.zeroEntries()
-            dolfinx.fem.assemble_matrix(A_tent, a_tent, bcs=bcs_tent)
+            fem.assemble_matrix(A_tent, a_tent, bcs=bcs_tent)
             A_tent.assemble()
 
             b_tent.x.array[:] = 0
-            dolfinx.fem.assemble_vector(b_tent.vector, L_tent)
-            dolfinx.fem.assemble.apply_lifting(b_tent.vector, [a_tent], [bcs_tent])
-            b_tent.x.scatter_reverse(dolfinx.cpp.common.ScatterMode.add)
-            dolfinx.fem.assemble.set_bc(b_tent.vector, bcs_tent)
+            fem.assemble_vector(b_tent.vector, L_tent)
+            fem.assemble.apply_lifting(b_tent.vector, [a_tent], [bcs_tent])
+            b_tent.x.scatter_reverse(cpp.common.ScatterMode.add)
+            fem.assemble.set_bc(b_tent.vector, bcs_tent)
             solver_tent.solve(b_tent.vector, u_tent.vector)
             u_tent.x.scatter_forward()
 
         # Solve step 2
-        with dolfinx.common.Timer("~Step 2"):
+        with common.Timer("~Step 2"):
             b_corr.x.array[:] = 0
-            dolfinx.fem.assemble_vector(b_corr.vector, L_corr)
-            dolfinx.fem.assemble.apply_lifting(b_corr.vector, [a_corr], [bcs_corr])
-            b_corr.x.scatter_reverse(dolfinx.cpp.common.ScatterMode.add)
-            dolfinx.fem.assemble.set_bc(b_corr.vector, bcs_corr)
+            fem.assemble_vector(b_corr.vector, L_corr)
+            fem.assemble.apply_lifting(b_corr.vector, [a_corr], [bcs_corr])
+            b_corr.x.scatter_reverse(cpp.common.ScatterMode.add)
+            fem.assemble.set_bc(b_corr.vector, bcs_corr)
             solver_corr.solve(b_corr.vector, phi.vector)
             phi.x.scatter_forward()
 
@@ -219,35 +218,35 @@ def IPCS(outdir: str, dim: int, degree_u: int,
             u_old.x.scatter_forward()
 
         # Solve step 3
-        with dolfinx.common.Timer("~Step 3"):
+        with common.Timer("~Step 3"):
             b_up.x.array[:] = 0
-            dolfinx.fem.assemble_vector(b_up.vector, L_up)
-            b_up.x.scatter_reverse(dolfinx.cpp.common.ScatterMode.add)
+            fem.assemble_vector(b_up.vector, L_up)
+            b_up.x.scatter_reverse(cpp.common.ScatterMode.add)
             solver_up.solve(b_up.vector, uh.vector)
             uh.x.scatter_forward()
 
-        with dolfinx.common.Timer("~IO"):
+        with common.Timer("~IO"):
             out_u.write_function(uh, t)
             out_p.write_function(ph, t)
 
     out_u.close()
     out_p.close()
 
-    t_step_1 = MPI.COMM_WORLD.gather(dolfinx.common.timing("~Step 1"), root=0)
-    t_step_2 = MPI.COMM_WORLD.gather(dolfinx.common.timing("~Step 2"), root=0)
-    t_step_3 = MPI.COMM_WORLD.gather(dolfinx.common.timing("~Step 3"), root=0)
-    io = MPI.COMM_WORLD.gather(dolfinx.common.timing("~IO"), root=0)
+    t_step_1 = MPI.COMM_WORLD.gather(common.timing("~Step 1"), root=0)
+    t_step_2 = MPI.COMM_WORLD.gather(common.timing("~Step 2"), root=0)
+    t_step_3 = MPI.COMM_WORLD.gather(common.timing("~Step 3"), root=0)
+    io_time = MPI.COMM_WORLD.gather(common.timing("~IO"), root=0)
     if comm.rank == 0:
         print("Time-step breakdown")
         for i, step in enumerate([t_step_1, t_step_2, t_step_3]):
             step = np.asarray(step)
             time_per_run = step[:, 1] / step[:, 0]
             print(f"Step {i+1}: Min time: {np.min(time_per_run):.3e}, Max time: {np.max(time_per_run):.3e}")
-        io = np.asarray(io)
-        time_per_run = io[:, 1] / io[:, 0]
+        io_time = np.asarray(io_time)
+        time_per_run = io_time[:, 1] / io_time[:, 0]
         print(f"IO {i+1}:   Min time: {np.min(time_per_run):.3e}, Max time: {np.max(time_per_run):.3e}")
 
-    # dolfinx.common.list_timings(comm, [dolfinx.common.TimingType.wall])
+    # common.list_timings(comm, [common.TimingType.wall])
 
 
 if __name__ == "__main__":
@@ -255,12 +254,10 @@ if __name__ == "__main__":
         description="Script to run the DFG 2D-3 benchmark"
         + "http://www.mathematik.tu-dortmund.de/~featflow/en/benchmarks/cfdbenchmarking/flow/dfg_benchmark3_re100.html",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument("--degree-u", default=2, type=int, dest="degree",
-                        help="Degree of velocity space")
+    parser.add_argument("--degree-u", default=2, type=int, dest="degree", help="Degree of velocity space")
     _2D = parser.add_mutually_exclusive_group(required=False)
     _2D.add_argument('--3D', dest='threed', action='store_true', help="Use 3D mesh", default=False)
-    parser.add_argument("--outdir", default="results", type=str, dest="outdir",
-                        help="Name of output folder")
+    parser.add_argument("--outdir", default="results", type=str, dest="outdir", help="Name of output folder")
     args = parser.parse_args()
     dim = 3 if args.threed else 2
     os.system(f"mkdir -p {args.outdir}")

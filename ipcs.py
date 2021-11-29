@@ -4,8 +4,7 @@
 
 import argparse
 
-import dolfinx
-import dolfinx.io
+from dolfinx import fem, io, generation, mesh as dmesh
 import numpy as np
 import ufl
 import os
@@ -27,15 +26,15 @@ def IPCS(r_lvl: int, t_lvl: int, outdir: str, degree_u=2,
          jit_parameters: dict = {"cffi_extra_compile_args": ["-Ofast", "-march=native"], "cffi_libraries": ["m"]}):
     # Define mesh and function spaces
     N = 10 * 2**r_lvl
-    mesh = dolfinx.RectangleMesh(comm, [np.array([-1.0, -1.0, 0.0]),
-                                        np.array([2.0, 2.0, 0.0])],
-                                 [N, N], dolfinx.mesh.CellType.triangle)
+    mesh = generation.RectangleMesh(comm, [np.array([-1.0, -1.0, 0.0]),
+                                           np.array([2.0, 2.0, 0.0])],
+                                    [N, N], dmesh.CellType.triangle)
     celldim = mesh.topology.dim
     facetdim = celldim - 1
     degree_p = degree_u - 1
     error_raise = 3
-    V = dolfinx.VectorFunctionSpace(mesh, ("CG", degree_u))
-    Q = dolfinx.FunctionSpace(mesh, ("CG", degree_p))
+    V = fem.VectorFunctionSpace(mesh, ("CG", degree_u))
+    Q = fem.FunctionSpace(mesh, ("CG", degree_p))
 
     # Temporal parameters
     t = 0
@@ -44,17 +43,17 @@ def IPCS(r_lvl: int, t_lvl: int, outdir: str, degree_u=2,
 
     # Physical parameters
     nu = 0.01
-    f = dolfinx.Constant(mesh, (0, 0))
+    f = fem.Constant(mesh, (0, 0))
 
     # Define functions for the variational form
-    uh = dolfinx.Function(V)
+    uh = fem.Function(V)
     uh.name = "Velocity"
-    u_tent = dolfinx.Function(V)
+    u_tent = fem.Function(V)
     u_tent.name = "Tentative_velocity"
-    u_old = dolfinx.Function(V)
-    ph = dolfinx.Function(Q)
+    u_old = fem.Function(V)
+    ph = fem.Function(Q)
     ph.name = "Pressure"
-    phi = dolfinx.Function(Q)
+    phi = fem.Function(Q)
     phi.name = "Phi"
 
     def u_ex(t, nu):
@@ -87,32 +86,32 @@ def IPCS(r_lvl: int, t_lvl: int, outdir: str, degree_u=2,
     dx = ufl.Measure("dx", domain=mesh)
 
     # ----Step 1: Tentative velocity step----
-    w_time = dolfinx.Constant(mesh, 3 / (2 * dt))
-    w_diffusion = dolfinx.Constant(mesh, nu)
+    w_time = fem.Constant(mesh, 3 / (2 * dt))
+    w_diffusion = fem.Constant(mesh, nu)
     a_tent = (w_time * ufl.inner(u, v) + w_diffusion
               * ufl.inner(ufl.grad(u), ufl.grad(v))) * dx
     L_tent = (ufl.inner(ph, ufl.div(v)) + ufl.inner(f, v)) * dx
-    L_tent += dolfinx.Constant(mesh, 1 / (2 * dt)) *\
-        ufl.inner(dolfinx.Constant(mesh, 4) * uh - u_old, v) * dx
+    L_tent += fem.Constant(mesh, 1 / (2 * dt)) *\
+        ufl.inner(fem.Constant(mesh, 4) * uh - u_old, v) * dx
     # BDF2 with implicit Adams-Bashforth
-    bs = dolfinx.Constant(mesh, 2) * uh - u_old
+    bs = fem.Constant(mesh, 2) * uh - u_old
     a_tent += ufl.inner(ufl.grad(u) * bs, v) * dx
 
     # Temam-device
-    a_tent += dolfinx.Constant(mesh, 0.5) * ufl.div(bs) * ufl.inner(u, v) * dx
+    a_tent += fem.Constant(mesh, 0.5) * ufl.div(bs) * ufl.inner(u, v) * dx
 
     # Find boundary facets and create boundary condition
-    bndry_facets = dolfinx.mesh.locate_entities_boundary(
+    bndry_facets = dmesh.locate_entities_boundary(
         mesh, mesh.topology.dim - 1, lambda x: np.ones(x.shape[1], dtype=bool))
-    bdofsV = dolfinx.fem.locate_dofs_topological(V, facetdim, bndry_facets)
-    u_bc = dolfinx.Function(V)
+    bdofsV = fem.locate_dofs_topological(V, facetdim, bndry_facets)
+    u_bc = fem.Function(V)
     u_bc.interpolate(u_ex(t + dt, nu))
-    bcs_tent = [dolfinx.DirichletBC(u_bc, bdofsV)]
-    a_tent = dolfinx.fem.Form(a_tent, jit_parameters=jit_parameters)
-    A_tent = dolfinx.fem.assemble_matrix(a_tent, bcs=bcs_tent)
+    bcs_tent = [fem.DirichletBC(u_bc, bdofsV)]
+    a_tent = fem.Form(a_tent, jit_parameters=jit_parameters)
+    A_tent = fem.assemble_matrix(a_tent, bcs=bcs_tent)
     A_tent.assemble()
-    L_tent = dolfinx.fem.Form(L_tent, jit_parameters=jit_parameters)
-    b_tent = dolfinx.fem.assemble_vector(L_tent)
+    L_tent = fem.Form(L_tent, jit_parameters=jit_parameters)
+    b_tent = fem.assemble_vector(L_tent)
     b_tent.assemble()
 
     # ----Step 2: Pressure correction step----
@@ -121,23 +120,23 @@ def IPCS(r_lvl: int, t_lvl: int, outdir: str, degree_u=2,
     a_corr = ufl.inner(ufl.grad(p), ufl.grad(q)) * dx
     L_corr = - w_time * ufl.inner(ufl.div(u_tent), q) * dx
     nullspace = PETSc.NullSpace().create(constant=True)
-    a_corr = dolfinx.fem.Form(a_corr, jit_parameters=jit_parameters)
-    A_corr = dolfinx.fem.assemble_matrix(a_corr)
+    a_corr = fem.Form(a_corr, jit_parameters=jit_parameters)
+    A_corr = fem.assemble_matrix(a_corr)
     A_corr.setNullSpace(nullspace)
     A_corr.assemble()
-    L_corr = dolfinx.fem.Form(L_corr, jit_parameters=jit_parameters)
-    b_corr = dolfinx.fem.assemble_vector(L_corr)
+    L_corr = fem.Form(L_corr, jit_parameters=jit_parameters)
+    b_corr = fem.assemble_vector(L_corr)
     b_corr.assemble()
 
     # ----Step 3: Velocity update----
     a_up = ufl.inner(u, v) * dx
     L_up = (ufl.inner(u_tent, v) - w_time**(-1) * ufl.inner(ufl.grad(phi), v)) * dx
-    a_up = dolfinx.fem.Form(a_up, jit_parameters=jit_parameters)
-    A_up = dolfinx.fem.assemble_matrix(a_up)
+    a_up = fem.Form(a_up, jit_parameters=jit_parameters)
+    A_up = fem.assemble_matrix(a_up)
     A_up.assemble()
 
-    L_up = dolfinx.fem.Form(L_up, jit_parameters=jit_parameters)
-    b_up = dolfinx.fem.assemble_vector(L_up)
+    L_up = fem.Form(L_up, jit_parameters=jit_parameters)
+    b_up = fem.assemble_vector(L_up)
     b_up.assemble()
 
     # Setup solvers
@@ -163,26 +162,26 @@ def IPCS(r_lvl: int, t_lvl: int, outdir: str, degree_u=2,
     solver_up.setOperators(A_up)
 
     # Create spaces for error approximation
-    V_err = dolfinx.VectorFunctionSpace(mesh, ("CG", degree_u + error_raise))
-    Q_err = dolfinx.FunctionSpace(mesh, ("CG", degree_p + error_raise))
-    u_err = dolfinx.Function(V_err)
-    p_err = dolfinx.Function(Q_err)
+    V_err = fem.VectorFunctionSpace(mesh, ("CG", degree_u + error_raise))
+    Q_err = fem.FunctionSpace(mesh, ("CG", degree_p + error_raise))
+    u_err = fem.Function(V_err)
+    p_err = fem.Function(Q_err)
 
     # Create file for output
-    outfile = dolfinx.io.XDMFFile(comm, f"{outdir}/output.xdmf", "w")
+    outfile = io.XDMFFile(comm, f"{outdir}/output.xdmf", "w")
     outfile.write_mesh(mesh)
 
     # Solve problem
     l2_u = np.zeros(int(T / dt), dtype=np.float64)
     l2_p = np.zeros(int(T / dt), dtype=np.float64)
-    vol_form = dolfinx.fem.Form(dolfinx.Constant(mesh, 1) * dx, jit_parameters=jit_parameters)
-    vol = mesh.mpi_comm().allreduce(dolfinx.fem.assemble_scalar(vol_form), op=MPI.SUM)
+    vol_form = fem.Form(fem.Constant(mesh, 1) * dx, jit_parameters=jit_parameters)
+    vol = mesh.comm.allreduce(fem.assemble_scalar(vol_form), op=MPI.SUM)
 
     # Setup error forms
-    error_u_L2 = dolfinx.fem.Form(ufl.inner(uh - u_err, uh - u_err) * ufl.dx,
-                                  jit_parameters=jit_parameters)
-    error_p_L2 = dolfinx.fem.Form(ufl.inner(ph - p_err, ph - p_err) * ufl.dx,
-                                  jit_parameters=jit_parameters)
+    error_u_L2 = fem.Form(ufl.inner(uh - u_err, uh - u_err) * ufl.dx,
+                          jit_parameters=jit_parameters)
+    error_p_L2 = fem.Form(ufl.inner(ph - p_err, ph - p_err) * ufl.dx,
+                          jit_parameters=jit_parameters)
 
     i = 0
     outfile.write_function(uh, t)
@@ -196,34 +195,31 @@ def IPCS(r_lvl: int, t_lvl: int, outdir: str, degree_u=2,
 
         # Solve step 1
         A_tent.zeroEntries()
-        dolfinx.fem.assemble_matrix(A_tent, a_tent, bcs=bcs_tent)
+        fem.assemble_matrix(A_tent, a_tent, bcs=bcs_tent)
         A_tent.assemble()
         with b_tent.localForm() as b_local:
             b_local.set(0.0)
-        dolfinx.fem.assemble_vector(b_tent, L_tent)
-        dolfinx.fem.assemble.apply_lifting(b_tent, [a_tent], [bcs_tent])
-        b_tent.ghostUpdate(addv=PETSc.InsertMode.ADD,
-                           mode=PETSc.ScatterMode.REVERSE)
-        dolfinx.fem.assemble.set_bc(b_tent, bcs_tent)
+        fem.assemble_vector(b_tent, L_tent)
+        fem.assemble.apply_lifting(b_tent, [a_tent], [bcs_tent])
+        b_tent.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
+        fem.assemble.set_bc(b_tent, bcs_tent)
         solver_tent.solve(b_tent, u_tent.vector)
         u_tent.x.scatter_forward()
 
         # Solve step 2
         A_corr.zeroEntries()
-        dolfinx.fem.assemble_matrix(A_corr, a_corr)
+        fem.assemble_matrix(A_corr, a_corr)
         A_corr.assemble()
         with b_corr.localForm() as b_local:
             b_local.set(0.0)
-        dolfinx.fem.assemble_vector(b_corr, L_corr)
+        fem.assemble_vector(b_corr, L_corr)
         b_corr.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
         b_corr.assemble()
         solver_corr.solve(b_corr, phi.vector)
         phi.x.scatter_forward()
 
         # Normalize pressure correction
-        phi_avg = mesh.mpi_comm().allreduce(
-            dolfinx.fem.assemble_scalar(phi * dx) / vol,
-            op=MPI.SUM)
+        phi_avg = mesh.comm.allreduce(fem.assemble_scalar(phi * dx) / vol, op=MPI.SUM)
         avg_vec = phi.vector.copy()
         with avg_vec.localForm() as avg_local:
             avg_local.set(-phi_avg)
@@ -237,18 +233,18 @@ def IPCS(r_lvl: int, t_lvl: int, outdir: str, degree_u=2,
 
         # Solve step 3
         A_up.zeroEntries()
-        dolfinx.fem.assemble_matrix(A_up, a_up)
+        fem.assemble_matrix(A_up, a_up)
         A_up.assemble()
         with b_up.localForm() as b_local:
             b_local.set(0.0)
-        dolfinx.fem.assemble_vector(b_up, L_up)
+        fem.assemble_vector(b_up, L_up)
         b_up.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
         solver_up.solve(b_up, uh.vector)
         uh.x.scatter_forward()
 
         # Compute L2 error norms
-        uL2 = mesh.mpi_comm().allreduce(dolfinx.fem.assemble_scalar(error_u_L2), op=MPI.SUM)
-        pL2 = mesh.mpi_comm().allreduce(dolfinx.fem.assemble_scalar(error_p_L2), op=MPI.SUM)
+        uL2 = mesh.comm.allreduce(fem.assemble_scalar(error_u_L2), op=MPI.SUM)
+        pL2 = mesh.comm.allreduce(fem.assemble_scalar(error_p_L2), op=MPI.SUM)
         l2_u[i] = uL2
         l2_p[i] = pL2
 
@@ -266,8 +262,7 @@ def IPCS(r_lvl: int, t_lvl: int, outdir: str, degree_u=2,
 if __name__ == "__main__":
     desc = "Script to run convergence study for a manufactured solution for the Navier-Stokes equations" +\
         " using the IPCS splitting scheme."
-    parser = argparse.ArgumentParser(
-        description=desc, formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser = argparse.ArgumentParser(description=desc, formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("--spatial", default=5, type=int, dest="R_ref",
                         help="Number of spatial refinements")
     parser.add_argument("--temporal", default=5, type=int, dest="T_ref",
