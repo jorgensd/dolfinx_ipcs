@@ -4,7 +4,6 @@ import os
 import numpy as np
 import ufl
 from dolfinx import common, fem, io, log, cpp
-from dolfinx import mesh as dmesh
 from mpi4py import MPI
 from petsc4py import PETSc
 

@@ -4,7 +4,7 @@
 
 import argparse
 
-from dolfinx import common, fem, io, generation, mesh as dmesh
+from dolfinx import fem, io, generation, mesh as dmesh
 import numpy as np
 import ufl
 import os
