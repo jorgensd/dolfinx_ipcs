@@ -1,5 +1,5 @@
 {
     "name": "dolfinx_ipcs",
     "version": "0.3.1",
-    "dependencies": {"dolfinx": "FEniCS/dolfinx"}
+    "dependencies": {"dolfinx": "git://github.com/FEniCS/dolfinx"}
 }
