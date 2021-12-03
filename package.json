@@ -1,3 +1,5 @@
 {
-    "dependencies": {"dolfinx": "FEniCS/dolfinx#main"}
+    "name": "dolfinx_ipcs",
+    "version": "0.3.1",
+    "dependencies": {"dolfinx": "FEniCS/dolfinx"}
 }
