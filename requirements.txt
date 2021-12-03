@@ -1,0 +1,7 @@
+
+--extra-index-url http://packages.fenicsproject.org/simple --trusted-host packages.fenicsproject.org
+fenics-dolfinx
+numpy
+tqdm
+--extra-index-url https://gmsh.info/pypi --trusted-host gmsh.info
+gmsh-nox-dev
