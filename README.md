@@ -22,6 +22,9 @@ pip3 install tqdm
 ```
 
 ## Pypi/requirements.txt
+
+> :warning: This is currently experimental, and cannot be guaranteed to work.  Currently the meshes can be created and converted using this strategy, but the dolfinx installation is out of date.
+
 The `requirement.txt` file in this repository can install both DOLFINx and GMSH (without GUI) using the command
 ```bash
 pip3 install -r requirements.txt

@@ -3,11 +3,13 @@
 #
 # SPDX-License-Identifier:    MIT
 
+import gmsh  # With gmsh-nox-dev we have to import it before dolfinx
+
 import argparse
 import os
 
 import dolfinx.io
-import gmsh
+
 import numpy as np
 from mpi4py import MPI
 
@@ -47,10 +49,12 @@ def generate_2D_channel(filename: str, outdir: str, res_min: float = 0.01, res_m
         gmsh.model.addPhysicalGroup(
             volumes[0][0], [volumes[0][1]], markers["Fluid"])
         gmsh.model.setPhysicalName(volumes[0][0], markers["Fluid"], "Fluid")
-
         inflow, outflow, walls, obstacle = [], [], [], []
         boundaries = gmsh.model.getBoundary(volumes)
         for boundary in boundaries:
+            # Bug in gmsh-nox-dev returns a -5 here
+            if boundary[1] < 0:
+                boundary = (boundary[0], abs(boundary[1]))
             center_of_mass = gmsh.model.occ.getCenterOfMass(boundary[0], boundary[1])
             if np.allclose(center_of_mass, [0, H / 2, 0]):
                 inflow.append(boundary[1])

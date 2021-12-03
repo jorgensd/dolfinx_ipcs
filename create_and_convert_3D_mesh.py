@@ -5,9 +5,10 @@
 import argparse
 import os
 
+import gmsh  # With gmsh-nox-dev we have to import it before dolfinx
+
 import dolfinx
 import dolfinx.io
-import gmsh
 import numpy as np
 from mpi4py import MPI
 
