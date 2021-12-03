@@ -1,0 +1,3 @@
+{
+    "dependencies": {"dolfinx": "FENICS/dolfinx#main"}
+}
