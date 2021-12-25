@@ -4,7 +4,7 @@
 
 import argparse
 
-from dolfinx import fem, io, generation, mesh as dmesh
+from dolfinx import fem, io, mesh as dmesh
 import numpy as np
 import ufl
 import os
@@ -26,9 +26,7 @@ def IPCS(r_lvl: int, t_lvl: int, outdir: str, degree_u=2,
          jit_parameters: dict = {"cffi_extra_compile_args": ["-Ofast", "-march=native"], "cffi_libraries": ["m"]}):
     # Define mesh and function spaces
     N = 10 * 2**r_lvl
-    mesh = generation.RectangleMesh(comm, [np.array([-1.0, -1.0, 0.0]),
-                                           np.array([2.0, 2.0, 0.0])],
-                                    [N, N], dmesh.CellType.triangle)
+    mesh = dmesh.create_rectangle(comm, [np.array([-1.0, -1.0]), np.array([2.0, 2.0])], [N, N], dmesh.CellType.triangle)
     celldim = mesh.topology.dim
     facetdim = celldim - 1
     degree_p = degree_u - 1
@@ -38,12 +36,12 @@ def IPCS(r_lvl: int, t_lvl: int, outdir: str, degree_u=2,
 
     # Temporal parameters
     t = 0
-    dt = 0.1 * 0.5**t_lvl
+    dt = PETSc.ScalarType(0.1 * 0.5**t_lvl)
     T = 1
 
     # Physical parameters
     nu = 0.01
-    f = fem.Constant(mesh, (0, 0))
+    f = fem.Constant(mesh, PETSc.ScalarType((0, 0)))
 
     # Define functions for the variational form
     uh = fem.Function(V)
@@ -87,18 +85,18 @@ def IPCS(r_lvl: int, t_lvl: int, outdir: str, degree_u=2,
 
     # ----Step 1: Tentative velocity step----
     w_time = fem.Constant(mesh, 3 / (2 * dt))
-    w_diffusion = fem.Constant(mesh, nu)
+    w_diffusion = fem.Constant(mesh, PETSc.ScalarType(nu))
     a_tent = (w_time * ufl.inner(u, v) + w_diffusion
               * ufl.inner(ufl.grad(u), ufl.grad(v))) * dx
     L_tent = (ufl.inner(ph, ufl.div(v)) + ufl.inner(f, v)) * dx
     L_tent += fem.Constant(mesh, 1 / (2 * dt)) *\
-        ufl.inner(fem.Constant(mesh, 4) * uh - u_old, v) * dx
+        ufl.inner(4 * uh - u_old, v) * dx
     # BDF2 with implicit Adams-Bashforth
-    bs = fem.Constant(mesh, 2) * uh - u_old
+    bs = 2 * uh - u_old
     a_tent += ufl.inner(ufl.grad(u) * bs, v) * dx
 
     # Temam-device
-    a_tent += fem.Constant(mesh, 0.5) * ufl.div(bs) * ufl.inner(u, v) * dx
+    a_tent += 0.5 * ufl.div(bs) * ufl.inner(u, v) * dx
 
     # Find boundary facets and create boundary condition
     bndry_facets = dmesh.locate_entities_boundary(
@@ -174,7 +172,7 @@ def IPCS(r_lvl: int, t_lvl: int, outdir: str, degree_u=2,
     # Solve problem
     l2_u = np.zeros(int(T / dt), dtype=np.float64)
     l2_p = np.zeros(int(T / dt), dtype=np.float64)
-    vol_form = fem.Form(fem.Constant(mesh, 1) * dx, jit_parameters=jit_parameters)
+    vol_form = fem.Form(fem.Constant(mesh, PETSc.ScalarType(1)) * dx, jit_parameters=jit_parameters)
     vol = mesh.comm.allreduce(fem.assemble_scalar(vol_form), op=MPI.SUM)
 
     # Setup error forms
