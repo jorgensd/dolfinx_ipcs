@@ -8,6 +8,7 @@ import os
 import gmsh  # With gmsh-nox-dev we have to import it before dolfinx
 
 import dolfinx
+import dolfinx.graph
 import dolfinx.io
 import numpy as np
 from mpi4py import MPI
@@ -55,7 +56,7 @@ def generate_3D_channel(filename: str, outdir: str):
 
     # Create distributed mesh
     ufl_domain = dolfinx.io.ufl_mesh_from_gmsh(cell_id, gdim)
-    gmsh_cell_perm = dolfinx.cpp.io.perm_gmsh(dolfinx.cpp.mesh.to_type(str(ufl_domain.ufl_cell())), num_nodes)
+    gmsh_cell_perm = dolfinx.io.cell_perm_gmsh(dolfinx.cpp.mesh.to_type(str(ufl_domain.ufl_cell())), num_nodes)
     cells = cells[:, gmsh_cell_perm]
     mesh = dolfinx.mesh.create_mesh(MPI.COMM_WORLD, cells, x[:, :gdim], ufl_domain)
     tdim = mesh.topology.dim
@@ -63,12 +64,12 @@ def generate_3D_channel(filename: str, outdir: str):
     # Permute facets from MSH to DOLFINx ordering
     # FIXME: Last argument in cell entity type has to be changed with prism cells
     facet_type = dolfinx.cpp.mesh.cell_entity_type(dolfinx.cpp.mesh.to_type(str(ufl_domain.ufl_cell())), fdim, 0)
-    gmsh_facet_perm = dolfinx.cpp.io.perm_gmsh(facet_type, num_facet_nodes)
+    gmsh_facet_perm = dolfinx.io.cell_perm_gmsh(facet_type, num_facet_nodes)
     marked_facets = np.asarray(marked_facets[:, gmsh_facet_perm], dtype=np.int64)
 
     local_entities, local_values = dolfinx.cpp.io.distribute_entity_data(mesh, fdim, marked_facets, facet_values)
     mesh.topology.create_connectivity(fdim, tdim)
-    adj = dolfinx.cpp.graph.AdjacencyList_int32(local_entities)
+    adj = dolfinx.graph.create_adjacencylist(local_entities)
 
     # Create DOLFINx MeshTags
     ft = dolfinx.mesh.create_meshtags(mesh, fdim, adj, np.int32(local_values))

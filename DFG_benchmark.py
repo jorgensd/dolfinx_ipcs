@@ -47,12 +47,12 @@ def IPCS(outdir: str, dim: int, degree_u: int,
 
     # Temporal parameters
     t = 0
-    dt = 1e-2
+    dt = PETSc.ScalarType(1e-2)
     T = 8
 
     # Physical parameters
     nu = 0.001
-    f = fem.Constant(mesh, (0,) * mesh.geometry.dim)
+    f = fem.Constant(mesh, PETSc.ScalarType((0,) * mesh.geometry.dim))
     H = 0.41
     Um = 2.25
 
@@ -74,15 +74,15 @@ def IPCS(outdir: str, dim: int, degree_u: int,
 
     # ----Step 1: Tentative velocity step----
     w_time = fem.Constant(mesh, 3 / (2 * dt))
-    w_diffusion = fem.Constant(mesh, nu)
+    w_diffusion = fem.Constant(mesh, PETSc.ScalarType(nu))
     a_tent = w_time * ufl.inner(u, v) * dx + w_diffusion * ufl.inner(ufl.grad(u), ufl.grad(v)) * dx
     L_tent = (ufl.inner(ph, ufl.div(v)) + ufl.inner(f, v)) * dx
-    L_tent += fem.Constant(mesh, 1 / (2 * dt)) * ufl.inner(fem.Constant(mesh, 4) * uh - u_old, v) * dx
+    L_tent += fem.Constant(mesh, 1 / (2 * dt)) * ufl.inner(4 * uh - u_old, v) * dx
     # BDF2 with implicit Adams-Bashforth
-    bs = fem.Constant(mesh, 2) * uh - u_old
+    bs = 2 * uh - u_old
     a_tent += ufl.inner(ufl.grad(u) * bs, v) * dx
     # Temam-device
-    a_tent += fem.Constant(mesh, 0.5) * ufl.div(bs) * ufl.inner(u, v) * dx
+    a_tent += 0.5 * ufl.div(bs) * ufl.inner(u, v) * dx
 
     # Find boundary facets and create boundary condition
     inlet_facets = mt.indices[mt.values == markers["Inlet"]]
@@ -102,11 +102,9 @@ def IPCS(outdir: str, dim: int, degree_u: int,
 
     u_inlet = fem.Function(V)
     u_inlet.interpolate(inlet_velocity(t))
-    u_zero = fem.Function(V)
-    u_zero.x.array[:] = 0.0
-
+    zero = np.array((0,) * mesh.geometry.dim, dtype=PETSc.ScalarType)
     bcs_tent = [fem.DirichletBC(u_inlet, inlet_dofs), fem.DirichletBC(
-        u_zero, wall_dofs), fem.DirichletBC(u_zero, obstacle_dofs)]
+        zero, wall_dofs, V), fem.DirichletBC(zero, obstacle_dofs, V)]
     a_tent = fem.Form(a_tent, jit_parameters=jit_parameters)
     A_tent = fem.assemble_matrix(a_tent, bcs=bcs_tent)
     A_tent.assemble()
@@ -116,9 +114,7 @@ def IPCS(outdir: str, dim: int, degree_u: int,
     # Step 2: Pressure correction step
     outlet_facets = mt.indices[mt.values == markers["Outlet"]]
     outlet_dofs = fem.locate_dofs_topological(Q, fdim, outlet_facets)
-    p_zero = fem.Function(Q)
-    p_zero.x.array[:] = 0
-    bcs_corr = [fem.DirichletBC(p_zero, outlet_dofs)]
+    bcs_corr = [fem.DirichletBC(PETSc.ScalarType(0), outlet_dofs, Q)]
     p = ufl.TrialFunction(Q)
     q = ufl.TestFunction(Q)
     a_corr = ufl.inner(ufl.grad(p), ufl.grad(q)) * dx
