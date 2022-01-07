@@ -103,32 +103,32 @@ def IPCS(outdir: str, dim: int, degree_u: int,
     u_inlet = fem.Function(V)
     u_inlet.interpolate(inlet_velocity(t))
     zero = np.array((0,) * mesh.geometry.dim, dtype=PETSc.ScalarType)
-    bcs_tent = [fem.DirichletBC(u_inlet, inlet_dofs), fem.DirichletBC(
-        zero, wall_dofs, V), fem.DirichletBC(zero, obstacle_dofs, V)]
-    a_tent = fem.Form(a_tent, jit_parameters=jit_parameters)
+    bcs_tent = [fem.dirichletbc(u_inlet, inlet_dofs), fem.dirichletbc(
+        zero, wall_dofs, V), fem.dirichletbc(zero, obstacle_dofs, V)]
+    a_tent = fem.form(a_tent, jit_parameters=jit_parameters)
     A_tent = fem.assemble_matrix(a_tent, bcs=bcs_tent)
     A_tent.assemble()
-    L_tent = fem.Form(L_tent, jit_parameters=jit_parameters)
+    L_tent = fem.form(L_tent, jit_parameters=jit_parameters)
     b_tent = fem.Function(V)
 
     # Step 2: Pressure correction step
     outlet_facets = mt.indices[mt.values == markers["Outlet"]]
     outlet_dofs = fem.locate_dofs_topological(Q, fdim, outlet_facets)
-    bcs_corr = [fem.DirichletBC(PETSc.ScalarType(0), outlet_dofs, Q)]
+    bcs_corr = [fem.dirichletbc(PETSc.ScalarType(0), outlet_dofs, Q)]
     p = ufl.TrialFunction(Q)
     q = ufl.TestFunction(Q)
     a_corr = ufl.inner(ufl.grad(p), ufl.grad(q)) * dx
     L_corr = - w_time * ufl.inner(ufl.div(u_tent), q) * dx
-    a_corr = fem.Form(a_corr, jit_parameters=jit_parameters)
+    a_corr = fem.form(a_corr, jit_parameters=jit_parameters)
     A_corr = fem.assemble_matrix(a_corr, bcs=bcs_corr)
     A_corr.assemble()
 
     b_corr = fem.Function(Q)
-    L_corr = fem.Form(L_corr, jit_parameters=jit_parameters)
+    L_corr = fem.form(L_corr, jit_parameters=jit_parameters)
 
     # Step 3: Velocity update
-    a_up = fem.Form(ufl.inner(u, v) * dx, jit_parameters=jit_parameters)
-    L_up = fem.Form((ufl.inner(u_tent, v) - w_time**(-1) * ufl.inner(ufl.grad(phi), v)) * dx,
+    a_up = fem.form(ufl.inner(u, v) * dx, jit_parameters=jit_parameters)
+    L_up = fem.form((ufl.inner(u_tent, v) - w_time**(-1) * ufl.inner(ufl.grad(phi), v)) * dx,
                     jit_parameters=jit_parameters)
     A_up = fem.assemble_matrix(a_up)
     A_up.assemble()

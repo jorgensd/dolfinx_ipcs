@@ -104,11 +104,13 @@ def IPCS(r_lvl: int, t_lvl: int, outdir: str, degree_u=2,
     bdofsV = fem.locate_dofs_topological(V, facetdim, bndry_facets)
     u_bc = fem.Function(V)
     u_bc.interpolate(u_ex(t + dt, nu))
-    bcs_tent = [fem.DirichletBC(u_bc, bdofsV)]
-    a_tent = fem.Form(a_tent, jit_parameters=jit_parameters)
+    bcs_tent = [fem.dirichletbc(u_bc, bdofsV)]
+
+    # Compile forms and assemble forms
+    a_tent = fem.form(a_tent, jit_parameters=jit_parameters)
     A_tent = fem.assemble_matrix(a_tent, bcs=bcs_tent)
     A_tent.assemble()
-    L_tent = fem.Form(L_tent, jit_parameters=jit_parameters)
+    L_tent = fem.form(L_tent, jit_parameters=jit_parameters)
     b_tent = fem.assemble_vector(L_tent)
     b_tent.assemble()
 
@@ -118,22 +120,24 @@ def IPCS(r_lvl: int, t_lvl: int, outdir: str, degree_u=2,
     a_corr = ufl.inner(ufl.grad(p), ufl.grad(q)) * dx
     L_corr = - w_time * ufl.inner(ufl.div(u_tent), q) * dx
     nullspace = PETSc.NullSpace().create(constant=True)
-    a_corr = fem.Form(a_corr, jit_parameters=jit_parameters)
+
+    # Compile forms and assemble forms
+    a_corr = fem.form(a_corr, jit_parameters=jit_parameters)
     A_corr = fem.assemble_matrix(a_corr)
     A_corr.setNullSpace(nullspace)
     A_corr.assemble()
-    L_corr = fem.Form(L_corr, jit_parameters=jit_parameters)
+    L_corr = fem.form(L_corr, jit_parameters=jit_parameters)
     b_corr = fem.assemble_vector(L_corr)
     b_corr.assemble()
 
     # ----Step 3: Velocity update----
     a_up = ufl.inner(u, v) * dx
     L_up = (ufl.inner(u_tent, v) - w_time**(-1) * ufl.inner(ufl.grad(phi), v)) * dx
-    a_up = fem.Form(a_up, jit_parameters=jit_parameters)
+    a_up = fem.form(a_up, jit_parameters=jit_parameters)
     A_up = fem.assemble_matrix(a_up)
     A_up.assemble()
 
-    L_up = fem.Form(L_up, jit_parameters=jit_parameters)
+    L_up = fem.form(L_up, jit_parameters=jit_parameters)
     b_up = fem.assemble_vector(L_up)
     b_up.assemble()
 
@@ -172,13 +176,16 @@ def IPCS(r_lvl: int, t_lvl: int, outdir: str, degree_u=2,
     # Solve problem
     l2_u = np.zeros(int(T / dt), dtype=np.float64)
     l2_p = np.zeros(int(T / dt), dtype=np.float64)
-    vol_form = fem.Form(fem.Constant(mesh, PETSc.ScalarType(1)) * dx, jit_parameters=jit_parameters)
+    vol_form = fem.form(fem.Constant(mesh, PETSc.ScalarType(1)) * dx, jit_parameters=jit_parameters)
     vol = mesh.comm.allreduce(fem.assemble_scalar(vol_form), op=MPI.SUM)
 
+    # Form for normalizing phi due to lack of DirichletBCs
+    norm_form = fem.form(phi * dx)
+
     # Setup error forms
-    error_u_L2 = fem.Form(ufl.inner(uh - u_err, uh - u_err) * ufl.dx,
+    error_u_L2 = fem.form(ufl.inner(uh - u_err, uh - u_err) * ufl.dx,
                           jit_parameters=jit_parameters)
-    error_p_L2 = fem.Form(ufl.inner(ph - p_err, ph - p_err) * ufl.dx,
+    error_p_L2 = fem.form(ufl.inner(ph - p_err, ph - p_err) * ufl.dx,
                           jit_parameters=jit_parameters)
 
     i = 0
@@ -205,9 +212,6 @@ def IPCS(r_lvl: int, t_lvl: int, outdir: str, degree_u=2,
         u_tent.x.scatter_forward()
 
         # Solve step 2
-        A_corr.zeroEntries()
-        fem.assemble_matrix(A_corr, a_corr)
-        A_corr.assemble()
         with b_corr.localForm() as b_local:
             b_local.set(0.0)
         fem.assemble_vector(b_corr, L_corr)
@@ -217,7 +221,7 @@ def IPCS(r_lvl: int, t_lvl: int, outdir: str, degree_u=2,
         phi.x.scatter_forward()
 
         # Normalize pressure correction
-        phi_avg = mesh.comm.allreduce(fem.assemble_scalar(phi * dx) / vol, op=MPI.SUM)
+        phi_avg = mesh.comm.allreduce(fem.assemble_scalar(norm_form) / vol, op=MPI.SUM)
         avg_vec = phi.vector.copy()
         with avg_vec.localForm() as avg_local:
             avg_local.set(-phi_avg)
@@ -230,9 +234,6 @@ def IPCS(r_lvl: int, t_lvl: int, outdir: str, degree_u=2,
         u_old.x.scatter_forward()
 
         # Solve step 3
-        A_up.zeroEntries()
-        fem.assemble_matrix(A_up, a_up)
-        A_up.assemble()
         with b_up.localForm() as b_local:
             b_local.set(0.0)
         fem.assemble_vector(b_up, L_up)
