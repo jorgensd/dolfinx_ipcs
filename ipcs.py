@@ -23,7 +23,7 @@ def compute_eoc(errors: np.ndarray):
 
 
 def IPCS(r_lvl: int, t_lvl: int, outdir: str, degree_u=2,
-         jit_parameters: dict = {"cffi_extra_compile_args": ["-Ofast", "-march=native"], "cffi_libraries": ["m"]}):
+         jit_params: dict = {"cffi_extra_compile_args": ["-Ofast", "-march=native"], "cffi_libraries": ["m"]}):
     # Define mesh and function spaces
     N = 10 * 2**r_lvl
     mesh = dmesh.create_rectangle(comm, [np.array([-1.0, -1.0]), np.array([2.0, 2.0])], [N, N], dmesh.CellType.triangle)
@@ -107,11 +107,11 @@ def IPCS(r_lvl: int, t_lvl: int, outdir: str, degree_u=2,
     bcs_tent = [fem.dirichletbc(u_bc, bdofsV)]
 
     # Compile forms and assemble forms
-    a_tent = fem.form(a_tent, jit_parameters=jit_parameters)
-    A_tent = fem.assemble_matrix(a_tent, bcs=bcs_tent)
+    a_tent = fem.form(a_tent, jit_params=jit_params)
+    A_tent = fem.petsc.assemble_matrix(a_tent, bcs=bcs_tent)
     A_tent.assemble()
-    L_tent = fem.form(L_tent, jit_parameters=jit_parameters)
-    b_tent = fem.assemble_vector(L_tent)
+    L_tent = fem.form(L_tent, jit_params=jit_params)
+    b_tent = fem.petsc.assemble_vector(L_tent)
     b_tent.assemble()
 
     # ----Step 2: Pressure correction step----
@@ -122,23 +122,23 @@ def IPCS(r_lvl: int, t_lvl: int, outdir: str, degree_u=2,
     nullspace = PETSc.NullSpace().create(constant=True)
 
     # Compile forms and assemble forms
-    a_corr = fem.form(a_corr, jit_parameters=jit_parameters)
-    A_corr = fem.assemble_matrix(a_corr)
+    a_corr = fem.form(a_corr, jit_params=jit_params)
+    A_corr = fem.petsc.assemble_matrix(a_corr)
     A_corr.setNullSpace(nullspace)
     A_corr.assemble()
-    L_corr = fem.form(L_corr, jit_parameters=jit_parameters)
-    b_corr = fem.assemble_vector(L_corr)
+    L_corr = fem.form(L_corr, jit_params=jit_params)
+    b_corr = fem.petsc.assemble_vector(L_corr)
     b_corr.assemble()
 
     # ----Step 3: Velocity update----
     a_up = ufl.inner(u, v) * dx
     L_up = (ufl.inner(u_tent, v) - w_time**(-1) * ufl.inner(ufl.grad(phi), v)) * dx
-    a_up = fem.form(a_up, jit_parameters=jit_parameters)
-    A_up = fem.assemble_matrix(a_up)
+    a_up = fem.form(a_up, jit_params=jit_params)
+    A_up = fem.petsc.assemble_matrix(a_up)
     A_up.assemble()
 
-    L_up = fem.form(L_up, jit_parameters=jit_parameters)
-    b_up = fem.assemble_vector(L_up)
+    L_up = fem.form(L_up, jit_params=jit_params)
+    b_up = fem.petsc.assemble_vector(L_up)
     b_up.assemble()
 
     # Setup solvers
@@ -176,7 +176,7 @@ def IPCS(r_lvl: int, t_lvl: int, outdir: str, degree_u=2,
     # Solve problem
     l2_u = np.zeros(int(T / dt), dtype=np.float64)
     l2_p = np.zeros(int(T / dt), dtype=np.float64)
-    vol_form = fem.form(fem.Constant(mesh, PETSc.ScalarType(1)) * dx, jit_parameters=jit_parameters)
+    vol_form = fem.form(fem.Constant(mesh, PETSc.ScalarType(1)) * dx, jit_params=jit_params)
     vol = mesh.comm.allreduce(fem.assemble_scalar(vol_form), op=MPI.SUM)
 
     # Form for normalizing phi due to lack of DirichletBCs
@@ -184,9 +184,9 @@ def IPCS(r_lvl: int, t_lvl: int, outdir: str, degree_u=2,
 
     # Setup error forms
     error_u_L2 = fem.form(ufl.inner(uh - u_err, uh - u_err) * ufl.dx,
-                          jit_parameters=jit_parameters)
+                          jit_params=jit_params)
     error_p_L2 = fem.form(ufl.inner(ph - p_err, ph - p_err) * ufl.dx,
-                          jit_parameters=jit_parameters)
+                          jit_params=jit_params)
 
     i = 0
     outfile.write_function(uh, t)
@@ -200,21 +200,21 @@ def IPCS(r_lvl: int, t_lvl: int, outdir: str, degree_u=2,
 
         # Solve step 1
         A_tent.zeroEntries()
-        fem.assemble_matrix(A_tent, a_tent, bcs=bcs_tent)
+        fem.petsc.assemble_matrix(A_tent, a_tent, bcs=bcs_tent)
         A_tent.assemble()
         with b_tent.localForm() as b_local:
             b_local.set(0.0)
-        fem.assemble_vector(b_tent, L_tent)
-        fem.assemble.apply_lifting(b_tent, [a_tent], [bcs_tent])
+        fem.petsc.assemble_vector(b_tent, L_tent)
+        fem.petsc.apply_lifting(b_tent, [a_tent], [bcs_tent])
         b_tent.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
-        fem.assemble.set_bc(b_tent, bcs_tent)
+        fem.petsc.set_bc(b_tent, bcs_tent)
         solver_tent.solve(b_tent, u_tent.vector)
         u_tent.x.scatter_forward()
 
         # Solve step 2
         with b_corr.localForm() as b_local:
             b_local.set(0.0)
-        fem.assemble_vector(b_corr, L_corr)
+        fem.petsc.assemble_vector(b_corr, L_corr)
         b_corr.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
         b_corr.assemble()
         solver_corr.solve(b_corr, phi.vector)
@@ -236,7 +236,7 @@ def IPCS(r_lvl: int, t_lvl: int, outdir: str, degree_u=2,
         # Solve step 3
         with b_up.localForm() as b_local:
             b_local.set(0.0)
-        fem.assemble_vector(b_up, L_up)
+        fem.petsc.assemble_vector(b_up, L_up)
         b_up.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
         solver_up.solve(b_up, uh.vector)
         uh.x.scatter_forward()
