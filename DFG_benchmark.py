@@ -3,7 +3,7 @@ import os
 
 import numpy as np
 import ufl
-from dolfinx import common, cpp, fem, io, la, log
+from dolfinx import common, fem, io, la, log
 from mpi4py import MPI
 from petsc4py import PETSc
 
@@ -235,11 +235,11 @@ def IPCS(outdir: str, dim: int, degree_u: int,
     if comm.rank == 0:
         print("Time-step breakdown")
         for i, step in enumerate([t_step_1, t_step_2, t_step_3]):
-            step = np.asarray(step)
-            time_per_run = step[:, 1] / step[:, 0]
+            step_arr = np.asarray(step)
+            time_per_run = step_arr[:, 1] / step_arr[:, 0]
             print(f"Step {i+1}: Min time: {np.min(time_per_run):.3e}, Max time: {np.max(time_per_run):.3e}")
-        io_time = np.asarray(io_time)
-        time_per_run = io_time[:, 1] / io_time[:, 0]
+        io_time_arr = np.asarray(io_time)
+        time_per_run = io_time_arr[:, 1] / io_time_arr[:, 0]
         print(f"IO {i+1}:   Min time: {np.min(time_per_run):.3e}, Max time: {np.max(time_per_run):.3e}")
 
     # common.list_timings(comm, [common.TimingType.wall])

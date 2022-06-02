@@ -72,7 +72,7 @@ def generate_3D_channel(filename: str, outdir: str):
     adj = dolfinx.graph.create_adjacencylist(local_entities)
 
     # Create DOLFINx MeshTags
-    ft = dolfinx.mesh.meshtags_from_entities(mesh, fdim, adj, np.int32(local_values))
+    ft = dolfinx.mesh.meshtags_from_entities(mesh, fdim, adj, local_values)
     ft.name = "Facet tags"
 
     with dolfinx.io.XDMFFile(MPI.COMM_WORLD, f"{outdir}/{filename}.xdmf", "w") as xdmf:
