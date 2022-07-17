@@ -185,7 +185,7 @@ def IPCS(outdir: str, dim: int, degree_u: int,
         with common.Timer("~Step 1"):
             u_inlet.interpolate(inlet_velocity(t))
             A_tent.zeroEntries()
-            fem.petsc.assemble_matrix(A_tent, a_tent, bcs=bcs_tent)
+            fem.petsc.assemble_matrix(A_tent, a_tent, bcs=bcs_tent)  # type: ignore
             A_tent.assemble()
 
             b_tent.x.array[:] = 0

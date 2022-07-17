@@ -200,7 +200,7 @@ def IPCS(r_lvl: int, t_lvl: int, outdir: str, degree_u=2,
 
         # Solve step 1
         A_tent.zeroEntries()
-        fem.petsc.assemble_matrix(A_tent, a_tent, bcs=bcs_tent)
+        fem.petsc.assemble_matrix(A_tent, a_tent, bcs=bcs_tent)  # type: ignore
         A_tent.assemble()
         with b_tent.localForm() as b_local:
             b_local.set(0.0)
