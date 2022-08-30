@@ -191,7 +191,7 @@ def IPCS(r_lvl: int, t_lvl: int, outdir: str, degree_u=2,
     i = 0
     outfile.write_function(uh, t)
     outfile.write_function(ph, t)
-    while(t <= T - 1e-3):
+    while (t <= T - 1e-3):
         t += dt
         # Update BC and exact solutions
         u_bc.interpolate(u_ex(t, nu))
