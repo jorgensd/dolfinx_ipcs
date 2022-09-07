@@ -23,7 +23,7 @@ def compute_eoc(errors: np.ndarray):
 
 
 def IPCS(r_lvl: int, t_lvl: int, outdir: str, degree_u=2,
-         jit_params: dict = {"cffi_extra_compile_args": ["-Ofast", "-march=native"], "cffi_libraries": ["m"]}):
+         jit_options: dict = {"cffi_extra_compile_args": ["-Ofast", "-march=native"], "cffi_libraries": ["m"]}):
     # Define mesh and function spaces
     N = 10 * 2**r_lvl
     mesh = dmesh.create_rectangle(comm, [np.array([-1.0, -1.0]), np.array([2.0, 2.0])], [N, N], dmesh.CellType.triangle)
@@ -107,10 +107,10 @@ def IPCS(r_lvl: int, t_lvl: int, outdir: str, degree_u=2,
     bcs_tent = [fem.dirichletbc(u_bc, bdofsV)]
 
     # Compile forms and assemble forms
-    a_tent = fem.form(a_tent, jit_params=jit_params)
+    a_tent = fem.form(a_tent, jit_options=jit_options)
     A_tent = fem.petsc.assemble_matrix(a_tent, bcs=bcs_tent)
     A_tent.assemble()
-    L_tent = fem.form(L_tent, jit_params=jit_params)
+    L_tent = fem.form(L_tent, jit_options=jit_options)
     b_tent = fem.petsc.assemble_vector(L_tent)
     b_tent.assemble()
 
@@ -122,22 +122,22 @@ def IPCS(r_lvl: int, t_lvl: int, outdir: str, degree_u=2,
     nullspace = PETSc.NullSpace().create(constant=True)
 
     # Compile forms and assemble forms
-    a_corr = fem.form(a_corr, jit_params=jit_params)
+    a_corr = fem.form(a_corr, jit_options=jit_options)
     A_corr = fem.petsc.assemble_matrix(a_corr)
     A_corr.setNullSpace(nullspace)
     A_corr.assemble()
-    L_corr = fem.form(L_corr, jit_params=jit_params)
+    L_corr = fem.form(L_corr, jit_options=jit_options)
     b_corr = fem.petsc.assemble_vector(L_corr)
     b_corr.assemble()
 
     # ----Step 3: Velocity update----
     a_up = ufl.inner(u, v) * dx
     L_up = (ufl.inner(u_tent, v) - w_time**(-1) * ufl.inner(ufl.grad(phi), v)) * dx
-    a_up = fem.form(a_up, jit_params=jit_params)
+    a_up = fem.form(a_up, jit_options=jit_options)
     A_up = fem.petsc.assemble_matrix(a_up)
     A_up.assemble()
 
-    L_up = fem.form(L_up, jit_params=jit_params)
+    L_up = fem.form(L_up, jit_options=jit_options)
     b_up = fem.petsc.assemble_vector(L_up)
     b_up.assemble()
 
@@ -176,7 +176,7 @@ def IPCS(r_lvl: int, t_lvl: int, outdir: str, degree_u=2,
     # Solve problem
     l2_u = np.zeros(int(T / dt), dtype=np.float64)
     l2_p = np.zeros(int(T / dt), dtype=np.float64)
-    vol_form = fem.form(fem.Constant(mesh, PETSc.ScalarType(1)) * dx, jit_params=jit_params)
+    vol_form = fem.form(fem.Constant(mesh, PETSc.ScalarType(1)) * dx, jit_options=jit_options)
     vol = mesh.comm.allreduce(fem.assemble_scalar(vol_form), op=MPI.SUM)
 
     # Form for normalizing phi due to lack of DirichletBCs
@@ -184,9 +184,9 @@ def IPCS(r_lvl: int, t_lvl: int, outdir: str, degree_u=2,
 
     # Setup error forms
     error_u_L2 = fem.form(ufl.inner(uh - u_err, uh - u_err) * ufl.dx,
-                          jit_params=jit_params)
+                          jit_options=jit_options)
     error_p_L2 = fem.form(ufl.inner(ph - p_err, ph - p_err) * ufl.dx,
-                          jit_params=jit_params)
+                          jit_options=jit_options)
 
     i = 0
     outfile.write_function(uh, t)
