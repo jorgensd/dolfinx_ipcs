@@ -11,44 +11,7 @@ There are various ways to install these packages.
 
 ## Docker
 
-To install the dependicies, docker is recommended:
-```bash
-docker run -ti -v $(pwd):/root/shared -w /root/shared --rm dolfinx/dolfinx
-```
-
-To be able to use time progressbar functionality, please install tqdm
-```bash
-pip3 install tqdm
-```
-
-## Pypi/requirements.txt
-
-> :warning: This is currently experimental, and cannot be guaranteed to work.  Currently the meshes can be created and converted using this strategy, but the dolfinx installation is for v0.4.1.
-
-The `requirement.txt` file in this repository can install both DOLFINx and GMSH (without GUI) using the command
-```bash
-pip3 install -r requirements.txt
-```
-The only requirement is that your system has an installation of `mpich` and `python3` (>=3.7).
-A minimal docker environment based on ubuntu 20.04 is listed below
-```docker
-FROM ubuntu:20.04
-RUN export DEBIAN_FRONTEND=noninteractive && \
-    apt-get -qq update && \
-    apt-get -yq --with-new-pkgs -o Dpkg::Options::="--force-confold" upgrade && \
-    apt-get -y install \
-    git \
-    wget \
-    libmpich-dev \
-    libblas-dev \
-    liblapack-dev \
-    python3-pip && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
-RUN git clone https://github.com/jorgensd/dolfinx_ipcs/ && \
-    pip3 install -r requirements.txt
-```
-which can also be found in the `Dockerfile`.
+You can use the pre-build docker image `ghcr.io/jorgensd/dolfinx_ipcs:v0.5.0` from [here](https://github.com/jorgensd/dolfinx_ipcs/pkgs/container/dolfinx_ipcs)
 
 # Taylor-Green benchmark
 To run the 2D Taylor-Green benchmark, run `ipcs.py`.
