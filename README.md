@@ -11,7 +11,7 @@ There are various ways to install these packages.
 
 ## Docker
 
-You can use the pre-build docker image `ghcr.io/jorgensd/dolfinx_ipcs:v0.5.0` from [here](https://github.com/jorgensd/dolfinx_ipcs/pkgs/container/dolfinx_ipcs)
+You can use the pre-build docker image `ghcr.io/jorgensd/dolfinx_ipcs:v0.6.0` from [here](https://github.com/jorgensd/dolfinx_ipcs/pkgs/container/dolfinx_ipcs)
 
 # Taylor-Green benchmark
 To run the 2D Taylor-Green benchmark, run `ipcs.py`.
