@@ -24,7 +24,7 @@ def generate_3D_channel(filename: str, outdir: str):
         xdmf.write_mesh(mesh)
     with dolfinx.io.XDMFFile(MPI.COMM_WORLD, f"{outdir}/{filename}_facets.xdmf", "w") as xdmf:
         xdmf.write_mesh(mesh)
-        xdmf.write_meshtags(ft)
+        xdmf.write_meshtags(ft, mesh.geometry)
 
 
 if __name__ == "__main__":

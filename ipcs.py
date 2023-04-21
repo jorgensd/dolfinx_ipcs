@@ -25,8 +25,8 @@ def compute_eoc(errors: np.ndarray):
 def IPCS(r_lvl: int, t_lvl: int, outdir: str, degree_u=2,
          jit_options: dict = {"cffi_extra_compile_args": ["-Ofast", "-march=native"], "cffi_libraries": ["m"]}):
     # Define mesh and function spaces
-    N = 10 * 2**r_lvl
-    mesh = dmesh.create_rectangle(comm, [np.array([-1.0, -1.0]), np.array([2.0, 2.0])], [N, N], dmesh.CellType.triangle)
+    N = 25 * 2**r_lvl
+    mesh = dmesh.create_rectangle(comm, [np.array([-1.0, -1.0]), np.array([1.0, 1.0])], [N, N], dmesh.CellType.triangle)
     celldim = mesh.topology.dim
     facetdim = celldim - 1
     degree_p = degree_u - 1
@@ -227,6 +227,7 @@ def IPCS(r_lvl: int, t_lvl: int, outdir: str, degree_u=2,
             avg_local.set(-phi_avg)
         phi.vector.axpy(1.0, avg_vec)
         phi.x.scatter_forward()
+
         # Update p and previous u
         ph.vector.axpy(1.0, phi.vector)
         ph.x.scatter_forward()
@@ -255,6 +256,9 @@ def IPCS(r_lvl: int, t_lvl: int, outdir: str, degree_u=2,
     outfile.close()
     L2L2u = compute_l2_time_err(dt, l2_u)
     L2L2p = compute_l2_time_err(dt, l2_p)
+    b_tent.destroy()
+    b_corr.destroy()
+    b_up.destroy()
     return L2L2u, L2L2p
 
 

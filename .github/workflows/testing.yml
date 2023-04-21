@@ -21,12 +21,21 @@ jobs:
           python3 -m pip install -r requirements.txt
 
       - name: Flake8 code
-        run: flake8 .
+        run: python3 -m flake8 .
 
-      - name: Run test
-        run: |
-          python3 ipcs.py
+      - name: Run Taylor-Green problem
+        run:
+          python3 ipcs.py --spatial=4 --temporal=2
+
+      - name: Run create DFG meshes
+        run: | 
           python3 create_and_convert_3D_mesh.py
           python3 create_and_convert_2D_mesh.py
+
+      - name: Run DFG (2D)
+        run:
           python3 DFG_benchmark.py
+
+      - name: Run DFG (3D)
+        run:          
           mpirun -n 2 python3 DFG_benchmark.py --3D
