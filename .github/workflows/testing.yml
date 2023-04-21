@@ -21,7 +21,7 @@ jobs:
           python3 -m pip install -r requirements.txt
 
       - name: Flake8 code
-        run: flake8 .
+        run: python3 -m flake8 .
 
       - name: Run test
         run: |

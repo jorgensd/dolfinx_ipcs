@@ -105,7 +105,7 @@ def generate_2D_channel(filename: str, outdir: str, res_min: float = 0.007, res_
         xdmf.write_mesh(mesh)
     with dolfinx.io.XDMFFile(MPI.COMM_WORLD, f"{outdir}/{filename}_facets.xdmf", "w") as xdmf:
         xdmf.write_mesh(mesh)
-        xdmf.write_meshtags(ft)
+        xdmf.write_meshtags(ft, mesh.geometry)
 
 
 if __name__ == "__main__":

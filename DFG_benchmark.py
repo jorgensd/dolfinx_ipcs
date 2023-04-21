@@ -1,11 +1,11 @@
 import argparse
-import os
 
 import numpy as np
 import ufl
 from dolfinx import common, fem, io, la, log
 from mpi4py import MPI
 from petsc4py import PETSc
+import pathlib
 
 from create_and_convert_2D_mesh import markers
 
@@ -19,10 +19,13 @@ except ModuleNotFoundError:
 log.set_log_level(log.LogLevel.ERROR)
 
 
-def IPCS(outdir: str, dim: int, degree_u: int,
+def IPCS(outdir: pathlib.Path, dim: int, degree_u: int,
          jit_options: dict = {"cffi_extra_compile_args": ["-Ofast", "-march=native"], "cffi_libraries": ["m"]}):
     assert degree_u >= 2
 
+    mesh_dir = pathlib.Path("meshes")
+    if not mesh_dir.exists():
+        raise RuntimeError(f"Could not find {str(mesh_dir)}")
     # Read in mesh
     comm = MPI.COMM_WORLD
     with io.XDMFFile(comm, f"meshes/channel{dim}D.xdmf", "r") as xdmf:
@@ -36,9 +39,9 @@ def IPCS(outdir: str, dim: int, degree_u: int,
         mt = xdmf.read_meshtags(mesh, "Facet tags")
 
     # Create output files
-    out_u = io.XDMFFile(comm, f"{outdir}/u_{dim}D.xdmf", "w")
+    out_u = io.XDMFFile(comm, outdir / f"u_{dim}D.xdmf", "w")
     out_u.write_mesh(mesh)
-    out_p = io.XDMFFile(comm, f"{outdir}/p_{dim}D.xdmf", "w")
+    out_p = io.XDMFFile(comm, outdir / f"p_{dim}D.xdmf", "w")
     out_p.write_mesh(mesh)
 
     # Define function spaces
@@ -256,5 +259,6 @@ if __name__ == "__main__":
     parser.add_argument("--outdir", default="results", type=str, dest="outdir", help="Name of output folder")
     args = parser.parse_args()
     dim = 3 if args.threed else 2
-    os.system(f"mkdir -p {args.outdir}")
-    IPCS(args.outdir, dim=dim, degree_u=args.degree)
+    outdir = pathlib.Path(args.outdir)
+    outdir.mkdir(exist_ok=True)
+    IPCS(outdir, dim=dim, degree_u=args.degree)
