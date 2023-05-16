@@ -194,7 +194,7 @@ def IPCS(outdir: pathlib.Path, dim: int, degree_u: int,
             b_tent.x.array[:] = 0
             fem.petsc.assemble_vector(b_tent.vector, L_tent)
             fem.petsc.apply_lifting(b_tent.vector, [a_tent], [bcs_tent])
-            b_tent.x.scatter_reverse(la.ScatterMode.add)
+            b_tent.x.scatter_reverse(la.InsertMode.add)
             fem.petsc.set_bc(b_tent.vector, bcs_tent)
             solver_tent.solve(b_tent.vector, u_tent.vector)
             u_tent.x.scatter_forward()
@@ -204,7 +204,7 @@ def IPCS(outdir: pathlib.Path, dim: int, degree_u: int,
             b_corr.x.array[:] = 0
             fem.petsc.assemble_vector(b_corr.vector, L_corr)
             fem.petsc.apply_lifting(b_corr.vector, [a_corr], [bcs_corr])
-            b_corr.x.scatter_reverse(la.ScatterMode.add)
+            b_corr.x.scatter_reverse(la.InsertMode.add)
             fem.petsc.set_bc(b_corr.vector, bcs_corr)
             solver_corr.solve(b_corr.vector, phi.vector)
             phi.x.scatter_forward()
@@ -220,7 +220,7 @@ def IPCS(outdir: pathlib.Path, dim: int, degree_u: int,
         with common.Timer("~Step 3"):
             b_up.x.array[:] = 0
             fem.petsc.assemble_vector(b_up.vector, L_up)
-            b_up.x.scatter_reverse(la.ScatterMode.add)
+            b_up.x.scatter_reverse(la.InsertMode.add)
             solver_up.solve(b_up.vector, uh.vector)
             uh.x.scatter_forward()
 
