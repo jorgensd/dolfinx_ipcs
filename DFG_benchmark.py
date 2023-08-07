@@ -40,8 +40,8 @@ def IPCS(outdir: pathlib.Path, dim: int, degree_u: int,
         mt = xdmf.read_meshtags(mesh, "Facet tags")
 
     # Define function spaces
-    V = fem.VectorFunctionSpace(mesh, ("CG", degree_u))
-    Q = fem.FunctionSpace(mesh, ("CG", degree_u - 1))
+    V = fem.VectorFunctionSpace(mesh, ("Lagrange", degree_u))
+    Q = fem.FunctionSpace(mesh, ("Lagrange", degree_u - 1))
 
     # Temporal parameters
     t = 0
