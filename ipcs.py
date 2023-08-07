@@ -171,8 +171,8 @@ def IPCS(r_lvl: int, t_lvl: int, outdir: str, degree_u=2,
     p_err = fem.Function(Q_err)
 
     # Create file for output
-    outfile = io.XDMFFile(comm, f"{outdir}/output.xdmf", "w")
-    outfile.write_mesh(mesh)
+    outfile_u = io.VTXWriter(comm, f"{outdir}/u.bp", [uh], engine="BP4")
+    outfile_p = io.VTXWriter(comm, f"{outdir}/p.bp", [ph], engine="BP4")
 
     # Solve problem
     l2_u = np.zeros(int(T / dt), dtype=np.float64)
@@ -190,8 +190,8 @@ def IPCS(r_lvl: int, t_lvl: int, outdir: str, degree_u=2,
                           jit_options=jit_options)
 
     i = 0
-    outfile.write_function(uh, t)
-    outfile.write_function(ph, t)
+    outfile_u.write(t)
+    outfile_p.write(t)
     while (t <= T - 1e-3):
         t += dt
         # Update BC and exact solutions
@@ -250,11 +250,11 @@ def IPCS(r_lvl: int, t_lvl: int, outdir: str, degree_u=2,
         l2_p[i] = pL2
 
         i += 1
-        outfile.write_function(phi, t)
-        outfile.write_function(u_tent, t)
-        outfile.write_function(uh, t)
-        outfile.write_function(ph, t)
-    outfile.close()
+        outfile_u.write(t)
+        outfile_p.write(t)
+
+    outfile_u.close()
+    outfile_p.close()
     L2L2u = compute_l2_time_err(dt, l2_u)
     L2L2p = compute_l2_time_err(dt, l2_p)
     b_tent.destroy()

@@ -39,15 +39,9 @@ def IPCS(outdir: pathlib.Path, dim: int, degree_u: int,
     with io.XDMFFile(comm, f"meshes/channel{dim}D_facets.xdmf", "r") as xdmf:
         mt = xdmf.read_meshtags(mesh, "Facet tags")
 
-    # Create output files
-    out_u = io.XDMFFile(comm, outdir / f"u_{dim}D.xdmf", "w")
-    out_u.write_mesh(mesh)
-    out_p = io.XDMFFile(comm, outdir / f"p_{dim}D.xdmf", "w")
-    out_p.write_mesh(mesh)
-
     # Define function spaces
-    V = fem.VectorFunctionSpace(mesh, ("CG", degree_u))
-    Q = fem.FunctionSpace(mesh, ("CG", degree_u - 1))
+    V = fem.VectorFunctionSpace(mesh, ("Lagrange", degree_u))
+    Q = fem.FunctionSpace(mesh, ("Lagrange", degree_u - 1))
 
     # Temporal parameters
     t = 0
@@ -174,9 +168,13 @@ def IPCS(outdir: pathlib.Path, dim: int, degree_u: int,
     solver_up.setType("cg")
     solver_up.getPC().setType("jacobi")
 
+    # Create output files
+    out_u = io.VTXWriter(comm, outdir / f"u_{dim}D.bp", [uh], engine="BP4")
+    out_p = io.VTXWriter(comm, outdir / f"p_{dim}D.bp", [ph], engine="BP4")
+    out_u.write(t)
+    out_p.write(t)
+
     # Solve problem
-    out_u.write_function(uh, t)
-    out_p.write_function(ph, t)
     N = int(T / dt)
     if has_tqdm:
         time_range = tqdm(range(N))
@@ -226,8 +224,8 @@ def IPCS(outdir: pathlib.Path, dim: int, degree_u: int,
             uh.x.scatter_forward()
 
         with common.Timer("~IO"):
-            out_u.write_function(uh, t)
-            out_p.write_function(ph, t)
+            out_u.write(t)
+            out_p.write(t)
 
     out_u.close()
     out_p.close()
