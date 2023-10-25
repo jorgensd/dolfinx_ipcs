@@ -4,3 +4,6 @@
 
 *.xdmf
 *.h5
+*.bp
+__pycache__
+*.msh

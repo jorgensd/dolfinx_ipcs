@@ -12,16 +12,18 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    container: ghcr.io/fenics/dolfinx/dolfinx:v0.7.0
+    container: ghcr.io/fenics/dolfinx/dolfinx:nightly
     steps:
       - uses: actions/checkout@v4
 
       - name: Install dependencies
-        run: |
-          python3 -m pip install -r requirements.txt
+        run: python3 -m pip install -r requirements.txt
 
       - name: Flake8 code
         run: python3 -m flake8 .
+
+      - name: Type-checking
+        run: python3 -m mypy .
 
       - name: Run Taylor-Green problem
         run: python3 ipcs.py --spatial=4 --temporal=2
