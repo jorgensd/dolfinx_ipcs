@@ -1,3 +1,3 @@
-FROM dolfinx/dolfinx:v0.7.0
+FROM ghcr.io/fenics/dolfinx/dolfinx:nightly
 COPY requirements.txt requirements.txt
 RUN pip3 install -r requirements.txt
