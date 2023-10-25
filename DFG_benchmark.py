@@ -1,12 +1,12 @@
 import argparse
+from pathlib import Path
 
+import dolfinx.fem.petsc as petsc_fem
 import numpy as np
 import ufl
-from dolfinx import common, fem, io, la, log
-import dolfinx.fem.petsc as petsc_fem
+from dolfinx import common, default_scalar_type, fem, io, la, log
 from mpi4py import MPI
 from petsc4py import PETSc
-import pathlib
 
 from create_and_convert_2D_mesh import markers
 
@@ -20,11 +20,11 @@ except ModuleNotFoundError:
 log.set_log_level(log.LogLevel.ERROR)
 
 
-def IPCS(outdir: pathlib.Path, dim: int, degree_u: int,
+def IPCS(outdir: Path, dim: int, degree_u: int,
          jit_options: dict = {"cffi_extra_compile_args": ["-Ofast", "-march=native"], "cffi_libraries": ["m"]}):
     assert degree_u >= 2
 
-    mesh_dir = pathlib.Path("meshes")
+    mesh_dir = Path("meshes")
     if not mesh_dir.exists():
         raise RuntimeError(f"Could not find {str(mesh_dir)}")
     # Read in mesh
@@ -40,17 +40,17 @@ def IPCS(outdir: pathlib.Path, dim: int, degree_u: int,
         mt = xdmf.read_meshtags(mesh, "Facet tags")
 
     # Define function spaces
-    V = fem.VectorFunctionSpace(mesh, ("Lagrange", degree_u))
-    Q = fem.FunctionSpace(mesh, ("Lagrange", degree_u - 1))
+    V = fem.functionspace(mesh, ("Lagrange", degree_u, (mesh.geometry.dim, )))
+    Q = fem.functionspace(mesh, ("Lagrange", degree_u - 1))
 
     # Temporal parameters
     t = 0
-    dt = PETSc.ScalarType(1e-2)
+    dt = default_scalar_type(1e-2)
     T = 8
 
     # Physical parameters
     nu = 0.001
-    f = fem.Constant(mesh, PETSc.ScalarType((0,) * mesh.geometry.dim))
+    f = fem.Constant(mesh, default_scalar_type((0,) * mesh.geometry.dim))
     H = 0.41
     Um = 2.25
 
@@ -72,7 +72,7 @@ def IPCS(outdir: pathlib.Path, dim: int, degree_u: int,
 
     # ----Step 1: Tentative velocity step----
     w_time = fem.Constant(mesh, 3 / (2 * dt))
-    w_diffusion = fem.Constant(mesh, PETSc.ScalarType(nu))
+    w_diffusion = fem.Constant(mesh, default_scalar_type(nu))
     a_tent = w_time * ufl.inner(u, v) * dx + w_diffusion * ufl.inner(ufl.grad(u), ufl.grad(v)) * dx
     L_tent = (ufl.inner(ph, ufl.div(v)) + ufl.inner(f, v)) * dx
     L_tent += fem.Constant(mesh, 1 / (2 * dt)) * ufl.inner(4 * uh - u_old, v) * dx
@@ -100,7 +100,7 @@ def IPCS(outdir: pathlib.Path, dim: int, degree_u: int,
 
     u_inlet = fem.Function(V)
     u_inlet.interpolate(inlet_velocity(t))
-    zero = np.array((0,) * mesh.geometry.dim, dtype=PETSc.ScalarType)
+    zero = np.array((0,) * mesh.geometry.dim, dtype=default_scalar_type)
     bcs_tent = [fem.dirichletbc(u_inlet, inlet_dofs), fem.dirichletbc(
         zero, wall_dofs, V), fem.dirichletbc(zero, obstacle_dofs, V)]
     a_tent = fem.form(a_tent, jit_options=jit_options)
@@ -112,7 +112,7 @@ def IPCS(outdir: pathlib.Path, dim: int, degree_u: int,
     # Step 2: Pressure correction step
     outlet_facets = mt.indices[mt.values == markers["Outlet"]]
     outlet_dofs = fem.locate_dofs_topological(Q, fdim, outlet_facets)
-    bcs_corr = [fem.dirichletbc(PETSc.ScalarType(0), outlet_dofs, Q)]
+    bcs_corr = [fem.dirichletbc(default_scalar_type(0), outlet_dofs, Q)]
     p = ufl.TrialFunction(Q)
     q = ufl.TestFunction(Q)
     a_corr = ufl.inner(ufl.grad(p), ufl.grad(q)) * dx
@@ -135,7 +135,7 @@ def IPCS(outdir: pathlib.Path, dim: int, degree_u: int,
     # Setup solvers
     rtol = 1e-8
     atol = 1e-8
-    solver_tent = PETSc.KSP().create(comm)
+    solver_tent = PETSc.KSP().create(comm)  # type: ignore
     solver_tent.setOperators(A_tent)
     solver_tent.setTolerances(rtol=rtol, atol=atol)
     solver_tent.rtol = rtol
@@ -145,7 +145,7 @@ def IPCS(outdir: pathlib.Path, dim: int, degree_u: int,
     # solver_tent.getPC().setType("lu")
     # solver_tent.getPC().setFactorSolverType("mumps")
 
-    solver_corr = PETSc.KSP().create(comm)
+    solver_corr = PETSc.KSP().create(comm)  # type: ignore
     solver_corr.setOperators(A_corr)
     solver_corr.setTolerances(rtol=rtol, atol=atol)
     # solver_corr.setType("preonly")
@@ -157,7 +157,7 @@ def IPCS(outdir: pathlib.Path, dim: int, degree_u: int,
     solver_corr.getPC().setType("hypre")
     solver_corr.getPC().setHYPREType("boomeramg")
 
-    solver_up = PETSc.KSP().create(comm)
+    solver_up = PETSc.KSP().create(comm)  # type: ignore
     solver_up.setOperators(A_up)
     solver_up.setTolerances(rtol=rtol, atol=atol)
     # solver_up.setType("preonly")
@@ -258,6 +258,6 @@ if __name__ == "__main__":
     parser.add_argument("--outdir", default="results", type=str, dest="outdir", help="Name of output folder")
     args = parser.parse_args()
     dim = 3 if args.threed else 2
-    outdir = pathlib.Path(args.outdir)
+    outdir = Path(args.outdir)
     outdir.mkdir(exist_ok=True)
     IPCS(outdir, dim=dim, degree_u=args.degree)

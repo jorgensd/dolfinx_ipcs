@@ -3,12 +3,13 @@
 # SPDX-License-Identifier:    MIT
 
 import argparse
+import os
 
-from dolfinx import fem, io, mesh as dmesh
 import dolfinx.fem.petsc as petsc_fem
 import numpy as np
 import ufl
-import os
+from dolfinx import fem, io, default_scalar_type
+from dolfinx import mesh as dmesh
 from mpi4py import MPI
 from petsc4py import PETSc
 
@@ -32,17 +33,17 @@ def IPCS(r_lvl: int, t_lvl: int, outdir: str, degree_u=2,
     facetdim = celldim - 1
     degree_p = degree_u - 1
     error_raise = 3
-    V = fem.VectorFunctionSpace(mesh, ("CG", degree_u))
-    Q = fem.FunctionSpace(mesh, ("CG", degree_p))
+    V = fem.functionspace(mesh, ("Lagrange", degree_u, (mesh.geometry.dim, )))
+    Q = fem.functionspace(mesh, ("Lagrange", degree_p))
 
     # Temporal parameters
     t = 0
-    dt = PETSc.ScalarType(0.1 * 0.5**t_lvl)
+    dt = default_scalar_type(0.1 * 0.5**t_lvl)
     T = 1
 
     # Physical parameters
     nu = 0.01
-    f = fem.Constant(mesh, PETSc.ScalarType((0, 0)))
+    f = fem.Constant(mesh, default_scalar_type((0, 0)))
 
     # Define functions for the variational form
     uh = fem.Function(V)
@@ -86,7 +87,7 @@ def IPCS(r_lvl: int, t_lvl: int, outdir: str, degree_u=2,
 
     # ----Step 1: Tentative velocity step----
     w_time = fem.Constant(mesh, 3 / (2 * dt))
-    w_diffusion = fem.Constant(mesh, PETSc.ScalarType(nu))
+    w_diffusion = fem.Constant(mesh, default_scalar_type(nu))
     a_tent = (w_time * ufl.inner(u, v) + w_diffusion
               * ufl.inner(ufl.grad(u), ufl.grad(v))) * dx
     L_tent = (ufl.inner(ph, ufl.div(v)) + ufl.inner(f, v)) * dx
@@ -120,7 +121,7 @@ def IPCS(r_lvl: int, t_lvl: int, outdir: str, degree_u=2,
     q = ufl.TestFunction(Q)
     a_corr = ufl.inner(ufl.grad(p), ufl.grad(q)) * dx
     L_corr = - w_time * ufl.inner(ufl.div(u_tent), q) * dx
-    nullspace = PETSc.NullSpace().create(constant=True)
+    nullspace = PETSc.NullSpace().create(constant=True)  # type: ignore
 
     # Compile forms and assemble forms
     a_corr = fem.form(a_corr, jit_options=jit_options)
@@ -143,21 +144,21 @@ def IPCS(r_lvl: int, t_lvl: int, outdir: str, degree_u=2,
     b_up.assemble()
 
     # Setup solvers
-    solver_tent = PETSc.KSP().create(comm)
+    solver_tent = PETSc.KSP().create(comm)  # type: ignore
     solver_tent.setType("preonly")
     solver_tent.setTolerances(rtol=1.0e-14)
     solver_tent.getPC().setType("lu")
     solver_tent.getPC().setFactorSolverType("mumps")
     solver_tent.setOperators(A_tent)
 
-    solver_corr = PETSc.KSP().create(comm)
+    solver_corr = PETSc.KSP().create(comm)  # type: ignore
     solver_corr.setType("preonly")
     solver_corr.setTolerances(rtol=1.0e-14)
     solver_corr.getPC().setType("lu")
     solver_corr.getPC().setFactorSolverType("mumps")
     solver_corr.setOperators(A_corr)
 
-    solver_up = PETSc.KSP().create(comm)
+    solver_up = PETSc.KSP().create(comm)  # type: ignore
     solver_up.setType("preonly")
     solver_up.setTolerances(rtol=1.0e-14)
     solver_up.getPC().setType("lu")
@@ -165,8 +166,8 @@ def IPCS(r_lvl: int, t_lvl: int, outdir: str, degree_u=2,
     solver_up.setOperators(A_up)
 
     # Create spaces for error approximation
-    V_err = fem.VectorFunctionSpace(mesh, ("CG", degree_u + error_raise))
-    Q_err = fem.FunctionSpace(mesh, ("CG", degree_p + error_raise))
+    V_err = fem.functionspace(mesh, ("Lagrange", degree_u + error_raise, (mesh.geometry.dim,)))
+    Q_err = fem.functionspace(mesh, ("Lagrange", degree_p + error_raise))
     u_err = fem.Function(V_err)
     p_err = fem.Function(Q_err)
 
@@ -177,7 +178,7 @@ def IPCS(r_lvl: int, t_lvl: int, outdir: str, degree_u=2,
     # Solve problem
     l2_u = np.zeros(int(T / dt), dtype=np.float64)
     l2_p = np.zeros(int(T / dt), dtype=np.float64)
-    vol_form = fem.form(fem.Constant(mesh, PETSc.ScalarType(1)) * dx, jit_options=jit_options)
+    vol_form = fem.form(fem.Constant(mesh, default_scalar_type(1)) * dx, jit_options=jit_options)
     vol = mesh.comm.allreduce(fem.assemble_scalar(vol_form), op=MPI.SUM)
 
     # Form for normalizing phi due to lack of DirichletBCs
@@ -207,7 +208,7 @@ def IPCS(r_lvl: int, t_lvl: int, outdir: str, degree_u=2,
             b_local.set(0.0)
         petsc_fem.assemble_vector(b_tent, L_tent)
         petsc_fem.apply_lifting(b_tent, [a_tent], [bcs_tent])
-        b_tent.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
+        b_tent.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)  # type: ignore
         petsc_fem.set_bc(b_tent, bcs_tent)
         solver_tent.solve(b_tent, u_tent.vector)
         u_tent.x.scatter_forward()
@@ -216,7 +217,7 @@ def IPCS(r_lvl: int, t_lvl: int, outdir: str, degree_u=2,
         with b_corr.localForm() as b_local:
             b_local.set(0.0)
         petsc_fem.assemble_vector(b_corr, L_corr)
-        b_corr.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
+        b_corr.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)  # type: ignore
         b_corr.assemble()
         solver_corr.solve(b_corr, phi.vector)
         phi.x.scatter_forward()
@@ -239,7 +240,7 @@ def IPCS(r_lvl: int, t_lvl: int, outdir: str, degree_u=2,
         with b_up.localForm() as b_local:
             b_local.set(0.0)
         petsc_fem.assemble_vector(b_up, L_up)
-        b_up.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
+        b_up.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)  # type: ignore
         solver_up.solve(b_up, uh.vector)
         uh.x.scatter_forward()
 

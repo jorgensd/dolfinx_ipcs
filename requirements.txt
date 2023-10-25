@@ -1,5 +1,5 @@
 
-fenics-dolfinx>=0.5.1
+fenics-dolfinx>=0.7.0
 tqdm
 gmsh
 flake8
